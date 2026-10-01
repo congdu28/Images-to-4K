@@ -58,16 +58,48 @@ jobs:
     - name: Build Release APK
       run: ./gradlew assembleRelease --stacktrace
 
-    - name: Upload Debug APK
+    - name: Prepare APKs for Direct Download
+      run: |
+        mkdir -p dist
+        cp app/build/outputs/apk/release/*.apk dist/ImagesTo4K-Release.apk
+        cp app/build/outputs/apk/debug/*.apk dist/ImagesTo4K-Debug.apk
+
+    - name: Upload Debug APK Artifact
       uses: actions/upload-artifact@v4
       if: success()
       with:
         name: ImagesTo4K-Debug-APK
-        path: app/build/outputs/apk/debug/*.apk
+        path: dist/ImagesTo4K-Debug.apk
 
-    - name: Upload Release APK
+    - name: Upload Release APK Artifact
       uses: actions/upload-artifact@v4
       if: success()
       with:
         name: ImagesTo4K-Release-APK
-        path: app/build/outputs/apk/release/*.apk
+        path: dist/ImagesTo4K-Release.apk
+
+    - name: Publish GitHub Release (Direct APK Download)
+      uses: softprops/action-gh-release@v2
+      if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      with:
+        tag_name: v1.2.0
+        name: "Images to 4K v1.2.0 (Bản mới nhất)"
+        draft: false
+        prerelease: false
+        body: |
+          ## 📱 Tải file APK trực tiếp về điện thoại (Không cần giải nén .zip):
+          - 👉 **[Tải ImagesTo4K-Release.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.2.0/ImagesTo4K-Release.apk)** *(Khuyên dùng để sử dụng)*
+          - 👉 **[Tải ImagesTo4K-Debug.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.2.0/ImagesTo4K-Debug.apk)**
+
+          ### 🌟 Tính năng mới bản v1.2.0:
+          - 📐 **Resize ảnh**: Tỉ lệ tự do & chuẩn 4K, 2K, FHD, HD (giữ đúng Aspect Ratio).
+          - ✂️ **Tách nền Offline**: MediaPipe AI < 0.1s, chọn nền Trong suốt, Trắng, Đen.
+          - 💾 **Xuất file**: Lựa chọn JPG (giữ EXIF) hoặc PNG (trong suốt).
+          - ⚡ **Tăng tốc AI 4K**: Chế độ Fast 4K (~0.3s) & ESRGAN 256px tiling.
+          - 🔄 **Cài đè**: Cài trực tiếp không cần gỡ bản cũ.
+        files: |
+          dist/ImagesTo4K-Release.apk
+          dist/ImagesTo4K-Debug.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
