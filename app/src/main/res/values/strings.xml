@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Images to 4K</string>
+    <string name="pick_image">Chọn ảnh từ thư viện</string>
+    <string name="process_image">Làm nét &amp; Nâng cấp 4K</string>
+    <string name="save_image">Lưu ảnh 4K</string>
+    <string name="before_label">GỐC</string>
+    <string name="after_label">ĐÃ LÀM NÉT 4K</string>
+</resources>
