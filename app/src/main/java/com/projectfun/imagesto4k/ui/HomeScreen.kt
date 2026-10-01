@@ -57,7 +57,6 @@ fun HomeScreen() {
     var progress by remember { mutableFloatStateOf(0f) }
     var progressText by remember { mutableStateOf("") }
 
-    // Modern Android Photo Picker launcher
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
@@ -79,11 +78,6 @@ fun HomeScreen() {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Camera,
-                            contentDescription = null,
-                            tint = NeonCyan
-                        )
                         Text(
                             text = "Images to 4K",
                             fontWeight = FontWeight.Bold,
@@ -92,7 +86,6 @@ fun HomeScreen() {
                     }
                 },
                 actions = {
-                    // Hardware Acceleration Chip
                     Surface(
                         shape = CircleShape,
                         color = if (useGpu) NeonCyan.copy(alpha = 0.2f) else Color(0xFF333333),
@@ -103,14 +96,8 @@ fun HomeScreen() {
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Icon(
-                                imageVector = if (useGpu) Icons.Default.Bolt else Icons.Default.Memory,
-                                contentDescription = null,
-                                tint = if (useGpu) NeonCyan else Color.LightGray,
-                                modifier = Modifier.size(16.dp)
-                            )
                             Text(
-                                text = if (useGpu) "GPU Active" else "CPU Mode",
+                                text = if (useGpu) "⚡ GPU" else "💻 CPU",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (useGpu) NeonCyan else Color.LightGray
@@ -143,7 +130,6 @@ fun HomeScreen() {
                         afterBitmap = enhancedBitmap
                     )
                 } else {
-                    // Empty state: Pick image trigger
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -170,7 +156,7 @@ fun HomeScreen() {
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.AddPhotoAlternate,
+                                    imageVector = Icons.Default.Add,
                                     contentDescription = null,
                                     tint = NeonCyan,
                                     modifier = Modifier.size(36.dp)
@@ -254,7 +240,7 @@ fun HomeScreen() {
                                 }
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Cached,
+                                    imageVector = Icons.Default.Refresh,
                                     contentDescription = "Đổi ảnh",
                                     tint = TextSecondary
                                 )
@@ -299,29 +285,18 @@ fun HomeScreen() {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Bolt,
-                                    contentDescription = null,
-                                    tint = if (useGpu) NeonCyan else Color.Gray,
-                                    modifier = Modifier.size(20.dp)
+                            Column {
+                                Text(
+                                    text = "Tăng tốc phần cứng (GPU/NPU)",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = TextPrimary
                                 )
-                                Column {
-                                    Text(
-                                        text = "Tăng tốc phần cứng (GPU/NPU)",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = TextPrimary
-                                    )
-                                    Text(
-                                        text = if (useGpu) "Tận dụng chip đồ họa của máy" else "Dùng CPU đa nhân",
-                                        fontSize = 10.sp,
-                                        color = TextSecondary
-                                    )
-                                }
+                                Text(
+                                    text = if (useGpu) "Tận dụng chip đồ họa của máy" else "Dùng CPU đa nhân",
+                                    fontSize = 10.sp,
+                                    color = TextSecondary
+                                )
                             }
                             Switch(
                                 checked = useGpu,
@@ -337,7 +312,7 @@ fun HomeScreen() {
                         AnimatedVisibility(visible = isProcessing) {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 LinearProgressIndicator(
-                                    progress = { progress },
+                                    progress = progress,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(6.dp)
@@ -396,7 +371,7 @@ fun HomeScreen() {
                                     contentColor = Color.Black
                                 )
                             ) {
-                                Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = null)
+                                Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = if (isProcessing) "Đang xử lý..." else "Làm Nét 4K",
@@ -423,7 +398,7 @@ fun HomeScreen() {
                                         contentColor = Color.Black
                                     )
                                 ) {
-                                    Icon(imageVector = Icons.Default.SaveAlt, contentDescription = null)
+                                    Icon(imageVector = Icons.Default.Check, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "Lưu Ảnh 4K",

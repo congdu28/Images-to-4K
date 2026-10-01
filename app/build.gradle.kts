@@ -30,7 +30,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug") // allow direct installation without custom keystore
+            signingConfig = signingConfigs.findByName("debug")
         }
     }
 
@@ -75,7 +75,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
 
     // Image loading
     implementation("io.coil-kt:coil-compose:2.6.0")

@@ -14,7 +14,6 @@ import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.File
 import java.io.FileInputStream
@@ -34,14 +33,9 @@ enum class EnhancementMode(val title: String, val scale: Int) {
 
 class ImageEnhancer(private val context: Context) {
 
-    private var interpreter4x: Interpreter? = null
-    private var interpreter2x: Interpreter? = null
     private var gpuDelegate: GpuDelegate? = null
-    private var isGpuActive: Boolean = false
-
-    init {
-        // Initialize delegates and interpreters lazily or on demand
-    }
+    var isGpuActive: Boolean = false
+        private set
 
     private fun loadModelFile(modelPath: String): ByteBuffer {
         val fileDescriptor: AssetFileDescriptor = context.assets.openFd(modelPath)
@@ -64,19 +58,14 @@ class ImageEnhancer(private val context: Context) {
         options.setNumThreads(max(2, min(numCores, 4)))
 
         if (useGpu) {
-            val compatList = CompatibilityList()
-            if (compatList.isDelegateSupportedOnThisDevice) {
-                try {
-                    val delegateOptions = compatList.bestOptionsForThisDevice
-                    val delegate = GpuDelegate(delegateOptions)
-                    options.addDelegate(delegate)
-                    gpuDelegate = delegate
-                    isGpuActive = true
-                } catch (e: Exception) {
-                    isGpuActive = false
-                }
-            } else {
+            try {
+                val delegate = GpuDelegate()
+                options.addDelegate(delegate)
+                gpuDelegate = delegate
+                isGpuActive = true
+            } catch (t: Throwable) {
                 isGpuActive = false
+                gpuDelegate = null
             }
         } else {
             isGpuActive = false
@@ -140,7 +129,6 @@ class ImageEnhancer(private val context: Context) {
         val inputW = input.width
         val inputH = input.height
 
-        // Limit maximum dimension for mobile memory safety if image is extreme (>4000px)
         val workingBitmap: Bitmap
         val shouldDownscale = max(inputW, inputH) > 2000
         if (shouldDownscale) {
@@ -171,7 +159,6 @@ class ImageEnhancer(private val context: Context) {
         var processedTiles = 0
 
         // Allocate reusable buffers for inference
-        // Input buffer: [1, tileSize, tileSize, 3]
         val inputTensorIndex = 0
         interpreter.resizeInput(inputTensorIndex, intArrayOf(1, tileSize, tileSize, 3))
         interpreter.allocateTensors()
@@ -242,13 +229,13 @@ class ImageEnhancer(private val context: Context) {
                 outputByteBuffer.rewind()
                 interpreter.run(inputByteBuffer, outputByteBuffer)
 
-                // Read output tensor into outPixels
+                // Read output tensor into outPixels using getFloat()
                 outputByteBuffer.rewind()
                 if (isOutputFloat) {
                     for (i in 0 until outTileW * outTileH) {
-                        val r = (outputByteBuffer.float.coerceIn(0f, 1f) * 255f).toInt()
-                        val g = (outputByteBuffer.float.coerceIn(0f, 1f) * 255f).toInt()
-                        val b = (outputByteBuffer.float.coerceIn(0f, 1f) * 255f).toInt()
+                        val r = (outputByteBuffer.getFloat().coerceIn(0f, 1f) * 255f).toInt()
+                        val g = (outputByteBuffer.getFloat().coerceIn(0f, 1f) * 255f).toInt()
+                        val b = (outputByteBuffer.getFloat().coerceIn(0f, 1f) * 255f).toInt()
                         outPixels[i] = Color.rgb(r, g, b)
                     }
                 } else {
@@ -299,7 +286,6 @@ class ImageEnhancer(private val context: Context) {
 
         src.getPixels(srcPixels, 0, width, 0, 0, width, height)
 
-        // Fast Box Blur approximation for unsharp mask
         fastBoxBlur(srcPixels, blurredPixels, width, height, radius)
 
         for (i in 0 until width * height) {
@@ -316,7 +302,6 @@ class ImageEnhancer(private val context: Context) {
             val gBlur = (blur shr 8) and 0xFF
             val bBlur = blur and 0xFF
 
-            // Unsharp formula: Enhanced = Original + amount * (Original - Blurred)
             val rNew = (rOrig + amount * (rOrig - rBlur)).toInt().coerceIn(0, 255)
             val gNew = (gOrig + amount * (gOrig - gBlur)).toInt().coerceIn(0, 255)
             val bNew = (bOrig + amount * (bOrig - bBlur)).toInt().coerceIn(0, 255)
@@ -442,12 +427,10 @@ class ImageEnhancer(private val context: Context) {
             tempOut.flush()
             tempOut.close()
 
-            // Copy EXIF metadata from original photo if available
             if (originalUri != null) {
                 ExifUtil.copyExif(context, originalUri, tempFile)
             }
 
-            // Write to gallery
             val outputStream: OutputStream? = resolver.openOutputStream(imageUri)
             if (outputStream != null) {
                 FileInputStream(tempFile).use { it.copyTo(outputStream) }

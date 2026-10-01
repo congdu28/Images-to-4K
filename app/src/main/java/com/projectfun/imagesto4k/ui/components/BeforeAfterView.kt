@@ -9,9 +9,6 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CompareArrows
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -84,7 +81,6 @@ fun BeforeAfterView(
             val w = size.width
             val h = size.height
 
-            // Calculate destination rect to aspect-fit image into container
             val srcAspect = beforeBitmap.width.toFloat() / beforeBitmap.height.toFloat()
             val canvasAspect = w / h
             val drawW: Float
@@ -104,10 +100,7 @@ fun BeforeAfterView(
                 drawY = 0f
             }
 
-            val imgDstRect = Rect(drawX, drawY, drawX + drawW, drawY + drawH)
-
             if (afterImageBitmap == null) {
-                // If not enhanced yet, draw original full screen
                 drawImage(
                     image = beforeImageBitmap,
                     dstOffset = IntOffset(drawX.toInt(), drawY.toInt()),
@@ -171,12 +164,26 @@ fun BeforeAfterView(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.CompareArrows,
-                    contentDescription = "Kéo so sánh",
-                    tint = Color.Black,
-                    modifier = Modifier.size(24.dp)
-                )
+                // Stylish double arrow drawn on canvas
+                Canvas(modifier = Modifier.size(20.dp)) {
+                    val cw = size.width
+                    val ch = size.height
+                    // Left arrow <
+                    val leftPath = Path().apply {
+                        moveTo(cw * 0.4f, ch * 0.25f)
+                        lineTo(cw * 0.15f, ch * 0.5f)
+                        lineTo(cw * 0.4f, ch * 0.75f)
+                    }
+                    drawPath(leftPath, Color.Black, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+
+                    // Right arrow >
+                    val rightPath = Path().apply {
+                        moveTo(cw * 0.6f, ch * 0.25f)
+                        lineTo(cw * 0.85f, ch * 0.5f)
+                        lineTo(cw * 0.6f, ch * 0.75f)
+                    }
+                    drawPath(rightPath, Color.Black, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+                }
             }
 
             // Before / After badges
