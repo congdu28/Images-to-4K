@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
+import org.tensorflow.lite.nnapi.NnApiDelegate
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -31,11 +32,20 @@ enum class EnhancementMode(val title: String, val scale: Int) {
     AI_ESRGAN_4X("AI Siêu Phân Giải 4K (ESRGAN)", 4)
 }
 
-class ImageEnhancer(private val context: Context) {
+data class ExecutionEngine(
+    val interpreter: Interpreter,
+    val gpuDelegate: GpuDelegate?,
+    val nnApiDelegate: NnApiDelegate?,
+    val hardwareName: String
+) : AutoCloseable {
+    override fun close() {
+        try { interpreter.close() } catch (_: Throwable) {}
+        try { gpuDelegate?.close() } catch (_: Throwable) {}
+        try { nnApiDelegate?.close() } catch (_: Throwable) {}
+    }
+}
 
-    private var gpuDelegate: GpuDelegate? = null
-    var isGpuActive: Boolean = false
-        private set
+class ImageEnhancer(private val context: Context) {
 
     private fun loadModelFile(modelPath: String): ByteBuffer {
         val fileDescriptor: AssetFileDescriptor = context.assets.openFd(modelPath)
@@ -46,33 +56,73 @@ class ImageEnhancer(private val context: Context) {
         return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
     }
 
-    private fun getInterpreter(mode: EnhancementMode, useGpu: Boolean): Interpreter {
+    /**
+     * Creates an execution engine with multi-tier hardware acceleration:
+     * 1. GPU Delegate (Adreno / Mali via OpenCL/OpenGL ES with FP16)
+     * 2. NPU Delegate (NNAPI - Qualcomm Hexagon / Google Tensor TPU / MediaTek APU)
+     * 3. CPU Multi-core (XNNPACK with ARM NEON)
+     */
+    private fun createExecutionEngine(
+        mode: EnhancementMode,
+        useHardwareAcceleration: Boolean,
+        tileSize: Int
+    ): ExecutionEngine {
         val modelPath = when (mode) {
             EnhancementMode.AI_ESRGAN_4X -> "models/esrgan_quant.tflite"
             EnhancementMode.AI_EDSR_2X -> "models/edsr_quant.tflite"
             EnhancementMode.PRO_SHARP -> throw IllegalArgumentException("Pro sharp does not use TFLite")
         }
 
-        val options = Interpreter.Options()
-        val numCores = Runtime.getRuntime().availableProcessors()
-        options.setNumThreads(max(2, min(numCores, 4)))
+        val modelBuffer = loadModelFile(modelPath)
 
-        if (useGpu) {
+        if (useHardwareAcceleration) {
+            // Tier 1: Try GPU Delegate with precision loss allowed for maximum compatibility
             try {
-                val delegate = GpuDelegate()
-                options.addDelegate(delegate)
-                gpuDelegate = delegate
-                isGpuActive = true
-            } catch (t: Throwable) {
-                isGpuActive = false
-                gpuDelegate = null
+                val gpuOptions = GpuDelegate.Options().apply {
+                    setPrecisionLossAllowed(true)
+                    setInferencePreference(GpuDelegate.Options.INFERENCE_PREFERENCE_SUSTAINED_SPEED)
+                }
+                val gpu = GpuDelegate(gpuOptions)
+                val options = Interpreter.Options().apply {
+                    addDelegate(gpu)
+                }
+                val interpreter = Interpreter(modelBuffer, options)
+                interpreter.resizeInput(0, intArrayOf(1, tileSize, tileSize, 3))
+                interpreter.allocateTensors()
+                return ExecutionEngine(interpreter, gpu, null, "GPU Tăng Tốc (Adreno/Mali)")
+            } catch (_: Throwable) {
+                // GPU delegate failed, proceed to Tier 2
             }
-        } else {
-            isGpuActive = false
+
+            // Tier 2: Try NNAPI Delegate (dedicated NPU / DSP hardware acceleration)
+            try {
+                val nnApiOptions = NnApiDelegate.Options().apply {
+                    setAllowFp16(true)
+                    setExecutionPreference(NnApiDelegate.Options.EXECUTION_PREFERENCE_SUSTAINED_SPEED)
+                }
+                val nnApi = NnApiDelegate(nnApiOptions)
+                val options = Interpreter.Options().apply {
+                    addDelegate(nnApi)
+                }
+                val interpreter = Interpreter(modelBuffer, options)
+                interpreter.resizeInput(0, intArrayOf(1, tileSize, tileSize, 3))
+                interpreter.allocateTensors()
+                return ExecutionEngine(interpreter, null, nnApi, "NPU / AI Chip (NNAPI)")
+            } catch (_: Throwable) {
+                // NNAPI delegate failed, proceed to Tier 3
+            }
         }
 
-        val modelBuffer = loadModelFile(modelPath)
-        return Interpreter(modelBuffer, options)
+        // Tier 3: Highly-optimized Multi-Threaded CPU Engine with XNNPACK
+        val numCores = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+        val cpuOptions = Interpreter.Options().apply {
+            setNumThreads(numCores)
+            setUseXNNPACK(true)
+        }
+        val interpreter = Interpreter(modelBuffer, cpuOptions)
+        interpreter.resizeInput(0, intArrayOf(1, tileSize, tileSize, 3))
+        interpreter.allocateTensors()
+        return ExecutionEngine(interpreter, null, null, "CPU Đa Nhân ($numCores Threads XNNPACK)")
     }
 
     /**
@@ -89,29 +139,26 @@ class ImageEnhancer(private val context: Context) {
             EnhancementMode.PRO_SHARP -> {
                 onProgress(0.2f, "Đang phân tích độ tương phản viền...")
                 val sharpened = applyUnsharpMask(inputBitmap, amount = 1.4f * intensity, radius = 2)
-                onProgress(1.0f, "Hoàn tất làm nét")
+                onProgress(1.0f, "Hoàn tất làm nét tức thì!")
                 sharpened
             }
             EnhancementMode.AI_EDSR_2X, EnhancementMode.AI_ESRGAN_4X -> {
                 val scale = mode.scale
-                onProgress(0.05f, "Đang chuẩn bị mô hình mạng nơ-ron (${if (useGpu) "GPU" else "CPU"})...")
-                val interpreter = getInterpreter(mode, useGpu)
+                val tileSize = 128
+                onProgress(0.05f, "Đang tối ưu cấu hình phần cứng...")
 
+                val engine = createExecutionEngine(mode, useGpu, tileSize)
                 try {
+                    onProgress(0.08f, "Đang xử lý bằng: ${engine.hardwareName}")
                     processWithTiling(
                         input = inputBitmap,
-                        interpreter = interpreter,
+                        engine = engine,
                         scale = scale,
+                        tileSize = tileSize,
                         onProgress = onProgress
                     )
                 } finally {
-                    try {
-                        interpreter.close()
-                        gpuDelegate?.close()
-                        gpuDelegate = null
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                    engine.close()
                 }
             }
         }
@@ -122,8 +169,9 @@ class ImageEnhancer(private val context: Context) {
      */
     private fun processWithTiling(
         input: Bitmap,
-        interpreter: Interpreter,
+        engine: ExecutionEngine,
         scale: Int,
+        tileSize: Int,
         onProgress: (Float, String) -> Unit
     ): Bitmap {
         val inputW = input.width
@@ -143,8 +191,7 @@ class ImageEnhancer(private val context: Context) {
         val srcW = workingBitmap.width
         val srcH = workingBitmap.height
 
-        val tileSize = 128
-        val overlap = 16
+        val overlap = 8
         val step = tileSize - (overlap * 2)
 
         val outW = srcW * scale
@@ -158,11 +205,7 @@ class ImageEnhancer(private val context: Context) {
         val totalTiles = xSteps * ySteps
         var processedTiles = 0
 
-        // Allocate reusable buffers for inference
-        val inputTensorIndex = 0
-        interpreter.resizeInput(inputTensorIndex, intArrayOf(1, tileSize, tileSize, 3))
-        interpreter.allocateTensors()
-
+        val interpreter = engine.interpreter
         val inputDetails = interpreter.getInputTensor(0)
         val outputDetails = interpreter.getOutputTensor(0)
 
@@ -201,7 +244,6 @@ class ImageEnhancer(private val context: Context) {
                     tileBitmap
                 }
 
-                // Extract pixels and load into ByteBuffer
                 uniformTile.getPixels(inPixels, 0, tileSize, 0, 0, tileSize, tileSize)
                 inputByteBuffer.rewind()
 
@@ -225,11 +267,9 @@ class ImageEnhancer(private val context: Context) {
                     }
                 }
 
-                // Run inference
                 outputByteBuffer.rewind()
                 interpreter.run(inputByteBuffer, outputByteBuffer)
 
-                // Read output tensor into outPixels using getFloat()
                 outputByteBuffer.rewind()
                 if (isOutputFloat) {
                     for (i in 0 until outTileW * outTileH) {
@@ -260,7 +300,7 @@ class ImageEnhancer(private val context: Context) {
                 val progress = processedTiles.toFloat() / totalTiles
                 onProgress(
                     progress,
-                    "Đang tái tạo chi tiết ô $processedTiles/$totalTiles (${(progress * 100).toInt()}%)"
+                    "[${engine.hardwareName}] Đang làm nét ô $processedTiles/$totalTiles (${(progress * 100).toInt()}%)"
                 )
             }
         }
