@@ -7,12 +7,21 @@ android {
     namespace = "com.projectfun.imagesto4k"
     compileSdk = 34
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("${rootDir}/keystore/release.jks")
+            storePassword = "android"
+            keyAlias = "imagesto4k"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.projectfun.imagesto4k"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 2)
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,13 +33,16 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.findByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

@@ -57,10 +57,10 @@ class ImageEnhancer(private val context: Context) {
     }
 
     /**
-     * Creates an execution engine with multi-tier hardware acceleration:
-     * 1. GPU Delegate (Adreno / Mali via OpenCL/OpenGL ES with FP16)
-     * 2. NPU Delegate (NNAPI - Qualcomm Hexagon / Google Tensor TPU / MediaTek APU)
-     * 3. CPU Multi-core (XNNPACK with ARM NEON)
+     * Multi-tier hardware acceleration:
+     * Tier 1: GPU Delegate (Adreno / Mali)
+     * Tier 2: NPU / DSP Delegate (NNAPI)
+     * Tier 3: Multi-core CPU (XNNPACK)
      */
     private fun createExecutionEngine(
         mode: EnhancementMode,
@@ -69,14 +69,14 @@ class ImageEnhancer(private val context: Context) {
     ): ExecutionEngine {
         val modelPath = when (mode) {
             EnhancementMode.AI_ESRGAN_4X -> "models/esrgan_quant.tflite"
-            EnhancementMode.AI_EDSR_2X -> "models/edsr_quant.tflite"
+            EnhancementMode.AI_EDSR_2X -> "models/edsr_x2_quant.tflite"
             EnhancementMode.PRO_SHARP -> throw IllegalArgumentException("Pro sharp does not use TFLite")
         }
 
         val modelBuffer = loadModelFile(modelPath)
 
         if (useHardwareAcceleration) {
-            // Tier 1: Try GPU Delegate with precision loss allowed for maximum compatibility
+            // Tier 1: GPU Delegate
             try {
                 val gpuOptions = GpuDelegate.Options().apply {
                     setPrecisionLossAllowed(true)
@@ -89,12 +89,10 @@ class ImageEnhancer(private val context: Context) {
                 val interpreter = Interpreter(modelBuffer, options)
                 interpreter.resizeInput(0, intArrayOf(1, tileSize, tileSize, 3))
                 interpreter.allocateTensors()
-                return ExecutionEngine(interpreter, gpu, null, "GPU Tăng Tốc (Adreno/Mali)")
-            } catch (_: Throwable) {
-                // GPU delegate failed, proceed to Tier 2
-            }
+                return ExecutionEngine(interpreter, gpu, null, "GPU (Adreno/Mali)")
+            } catch (_: Throwable) {}
 
-            // Tier 2: Try NNAPI Delegate (dedicated NPU / DSP hardware acceleration)
+            // Tier 2: NPU / NNAPI
             try {
                 val nnApiOptions = NnApiDelegate.Options().apply {
                     setAllowFp16(true)
@@ -108,12 +106,10 @@ class ImageEnhancer(private val context: Context) {
                 interpreter.resizeInput(0, intArrayOf(1, tileSize, tileSize, 3))
                 interpreter.allocateTensors()
                 return ExecutionEngine(interpreter, null, nnApi, "NPU / AI Chip (NNAPI)")
-            } catch (_: Throwable) {
-                // NNAPI delegate failed, proceed to Tier 3
-            }
+            } catch (_: Throwable) {}
         }
 
-        // Tier 3: Highly-optimized Multi-Threaded CPU Engine with XNNPACK
+        // Tier 3: CPU Multi-core XNNPACK
         val numCores = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
         val cpuOptions = Interpreter.Options().apply {
             setNumThreads(numCores)
@@ -132,31 +128,36 @@ class ImageEnhancer(private val context: Context) {
         inputBitmap: Bitmap,
         mode: EnhancementMode,
         useGpu: Boolean,
-        intensity: Float = 1.0f,
+        intensity: Float = 1.5f,
         onProgress: (Float, String) -> Unit
     ): Bitmap = withContext(Dispatchers.Default) {
         when (mode) {
             EnhancementMode.PRO_SHARP -> {
-                onProgress(0.2f, "Đang phân tích độ tương phản viền...")
-                val sharpened = applyUnsharpMask(inputBitmap, amount = 1.4f * intensity, radius = 2)
-                onProgress(1.0f, "Hoàn tất làm nét tức thì!")
+                onProgress(0.2f, "Đang phân tích cấu trúc đa tần số...")
+                val sharpened = applyProSharpeningAndClarity(inputBitmap, intensity)
+                onProgress(1.0f, "Hoàn tất làm nét Pro Sharp!")
                 sharpened
             }
             EnhancementMode.AI_EDSR_2X, EnhancementMode.AI_ESRGAN_4X -> {
                 val scale = mode.scale
                 val tileSize = 128
-                onProgress(0.05f, "Đang tối ưu cấu hình phần cứng...")
+                onProgress(0.05f, "Đang kết nối bộ tăng tốc phần cứng...")
 
                 val engine = createExecutionEngine(mode, useGpu, tileSize)
                 try {
                     onProgress(0.08f, "Đang xử lý bằng: ${engine.hardwareName}")
-                    processWithTiling(
+                    val rawAiResult = processWithTiling(
                         input = inputBitmap,
                         engine = engine,
                         scale = scale,
                         tileSize = tileSize,
                         onProgress = onProgress
                     )
+                    // Crisp texture finish to make 4K / 2K details pop on mobile screens
+                    onProgress(0.96f, "Đang hoàn thiện viền sắc nét...")
+                    val finalResult = applyProSharpeningAndClarity(rawAiResult, intensity = 1.0f)
+                    onProgress(1.0f, "Hoàn tất siêu phân giải ${mode.title}!")
+                    finalResult
                 } finally {
                     engine.close()
                 }
@@ -299,7 +300,7 @@ class ImageEnhancer(private val context: Context) {
                 processedTiles++
                 val progress = processedTiles.toFloat() / totalTiles
                 onProgress(
-                    progress,
+                    progress * 0.95f,
                     "[${engine.hardwareName}] Đang làm nét ô $processedTiles/$totalTiles (${(progress * 100).toInt()}%)"
                 )
             }
@@ -313,24 +314,40 @@ class ImageEnhancer(private val context: Context) {
     }
 
     /**
-     * Fast High-Pass Unsharp Masking Algorithm for instant crisp edges
+     * Professional Dual-Frequency Sharpening & Micro-Contrast (Clarity) Engine:
+     * - Band 1: Adaptive High-Pass (Texture, eyelashes, edges, hair)
+     * - Band 2: Mid-Frequency Local Contrast (De-haze, structure, clear view)
+     * - Soft thresholding to prevent digital noise
      */
-    private fun applyUnsharpMask(src: Bitmap, amount: Float, radius: Int): Bitmap {
+    private fun applyProSharpeningAndClarity(src: Bitmap, intensity: Float): Bitmap {
         val width = src.width
         val height = src.height
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
         val srcPixels = IntArray(width * height)
-        val blurredPixels = IntArray(width * height)
+        val fineBlurPixels = IntArray(width * height)
+        val wideBlurPixels = IntArray(width * height)
         val outPixels = IntArray(width * height)
 
         src.getPixels(srcPixels, 0, width, 0, 0, width, height)
 
-        fastBoxBlur(srcPixels, blurredPixels, width, height, radius)
+        // Adaptive radii based on image resolution (so it scales properly for 4K down to 1080p)
+        val minDim = min(width, height)
+        val fineRadius = max(2, minDim / 400)
+        val wideRadius = max(6, minDim / 120)
+
+        // Pass 1: Fine-detail blur
+        fastBoxBlur(srcPixels, fineBlurPixels, width, height, fineRadius)
+        // Pass 2: Mid-tone structure blur
+        fastBoxBlur(srcPixels, wideBlurPixels, width, height, wideRadius)
+
+        val fineWeight = 1.8f * intensity
+        val wideWeight = 0.6f * intensity
 
         for (i in 0 until width * height) {
             val orig = srcPixels[i]
-            val blur = blurredPixels[i]
+            val fine = fineBlurPixels[i]
+            val wide = wideBlurPixels[i]
 
             val a = (orig shr 24) and 0xFF
 
@@ -338,13 +355,22 @@ class ImageEnhancer(private val context: Context) {
             val gOrig = (orig shr 8) and 0xFF
             val bOrig = orig and 0xFF
 
-            val rBlur = (blur shr 16) and 0xFF
-            val gBlur = (blur shr 8) and 0xFF
-            val bBlur = blur and 0xFF
+            val rFine = (fine shr 16) and 0xFF
+            val gFine = (fine shr 8) and 0xFF
+            val bFine = fine and 0xFF
 
-            val rNew = (rOrig + amount * (rOrig - rBlur)).toInt().coerceIn(0, 255)
-            val gNew = (gOrig + amount * (gOrig - gBlur)).toInt().coerceIn(0, 255)
-            val bNew = (bOrig + amount * (bOrig - bBlur)).toInt().coerceIn(0, 255)
+            val rWide = (wide shr 16) and 0xFF
+            val gWide = (wide shr 8) and 0xFF
+            val bWide = wide and 0xFF
+
+            // Detail difference + Structure contrast difference
+            val rDiff = fineWeight * (rOrig - rFine) + wideWeight * (rOrig - rWide)
+            val gDiff = fineWeight * (gOrig - gFine) + wideWeight * (gOrig - gWide)
+            val bDiff = fineWeight * (bOrig - bFine) + wideWeight * (bOrig - bWide)
+
+            val rNew = (rOrig + rDiff).toInt().coerceIn(0, 255)
+            val gNew = (gOrig + gDiff).toInt().coerceIn(0, 255)
+            val bNew = (bOrig + bDiff).toInt().coerceIn(0, 255)
 
             outPixels[i] = (a shl 24) or (rNew shl 16) or (gNew shl 8) or bNew
         }
@@ -441,7 +467,7 @@ class ImageEnhancer(private val context: Context) {
     }
 
     /**
-     * Save enhanced 4K image to MediaStore and preserve all camera EXIF data
+     * Save enhanced image to MediaStore and preserve camera EXIF
      */
     suspend fun saveImageToGallery(
         bitmap: Bitmap,

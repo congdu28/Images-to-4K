@@ -36,6 +36,7 @@ import com.projectfun.imagesto4k.ui.components.BeforeAfterView
 import com.projectfun.imagesto4k.ui.theme.*
 import kotlinx.coroutines.launch
 import java.io.InputStream
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,7 +52,7 @@ fun HomeScreen() {
 
     var selectedMode by remember { mutableStateOf(EnhancementMode.AI_ESRGAN_4X) }
     var useGpu by remember { mutableStateOf(true) }
-    var intensity by remember { mutableFloatStateOf(1.0f) }
+    var intensity by remember { mutableFloatStateOf(1.5f) }
 
     var isProcessing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -97,7 +98,7 @@ fun HomeScreen() {
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = if (useGpu) "⚡ GPU" else "💻 CPU",
+                                text = if (useGpu) "⚡ GPU/NPU" else "💻 CPU",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (useGpu) NeonCyan else Color.LightGray
@@ -209,7 +210,7 @@ fun HomeScreen() {
                             .fillMaxWidth()
                             .padding(16.dp)
                             .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         // EXIF & Dimension specs
                         Row(
@@ -226,7 +227,7 @@ fun HomeScreen() {
                                 )
                                 Text(
                                     text = "Gốc: ${originalBitmap!!.width}x${originalBitmap!!.height} px" +
-                                            if (enhancedBitmap != null) " → Đích: ${enhancedBitmap!!.width}x${enhancedBitmap!!.height} px (4K)" else "",
+                                            if (enhancedBitmap != null) " → Đích: ${enhancedBitmap!!.width}x${enhancedBitmap!!.height} px" else "",
                                     fontSize = 11.sp,
                                     color = TextSecondary
                                 )
@@ -279,7 +280,40 @@ fun HomeScreen() {
                             }
                         }
 
-                        // Options: Hardware Acceleration Switch & Intensity Slider
+                        // Intensity Slider for Sharpening
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Mức độ làm nét (Sharpening Intensity):",
+                                    fontSize = 12.sp,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "${(intensity * 100).roundToInt()}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NeonCyan
+                                )
+                            }
+                            Slider(
+                                value = intensity,
+                                onValueChange = { intensity = it },
+                                valueRange = 0.5f..3.0f,
+                                steps = 24,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = NeonCyan,
+                                    activeTrackColor = NeonCyan,
+                                    inactiveTrackColor = DarkSurfaceElevated
+                                )
+                            )
+                        }
+
+                        // Hardware Acceleration Switch
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -293,7 +327,7 @@ fun HomeScreen() {
                                     color = TextPrimary
                                 )
                                 Text(
-                                    text = if (useGpu) "Tận dụng chip đồ họa của máy" else "Dùng CPU đa nhân",
+                                    text = if (useGpu) "Tự động điều phối GPU/NPU chip máy" else "Dùng CPU đa nhân",
                                     fontSize = 10.sp,
                                     color = TextSecondary
                                 )
@@ -374,7 +408,7 @@ fun HomeScreen() {
                                 Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (isProcessing) "Đang xử lý..." else "Làm Nét 4K",
+                                    text = if (isProcessing) "Đang xử lý..." else "Làm Nét Ngay",
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -385,7 +419,7 @@ fun HomeScreen() {
                                         coroutineScope.launch {
                                             val savedUri = enhancer.saveImageToGallery(enhancedBitmap!!, selectedUri)
                                             if (savedUri != null) {
-                                                Toast.makeText(context, "Đã lưu ảnh 4K kèm thông số EXIF vào Thư viện!", Toast.LENGTH_LONG).show()
+                                                Toast.makeText(context, "Đã lưu ảnh sắc nét kèm thông số EXIF vào Thư viện!", Toast.LENGTH_LONG).show()
                                             } else {
                                                 Toast.makeText(context, "Không thể lưu ảnh", Toast.LENGTH_SHORT).show()
                                             }
@@ -401,7 +435,7 @@ fun HomeScreen() {
                                     Icon(imageVector = Icons.Default.Check, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Lưu Ảnh 4K",
+                                        text = "Lưu Ảnh",
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
