@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -26,10 +27,22 @@ import java.nio.channels.FileChannel
 import kotlin.math.max
 import kotlin.math.min
 
-enum class EnhancementMode(val title: String, val scale: Int) {
-    PRO_SHARP("Làm nét tức thì (Pro Sharp)", 1),
-    AI_EDSR_2X("AI Nhanh 2x (EDSR)", 2),
-    AI_ESRGAN_4X("AI Siêu Phân Giải 4K (ESRGAN)", 4)
+enum class EnhancementMode(val title: String, val scale: Int, val description: String) {
+    PRO_SHARP("Pro Sharp", 1, "Giữ nguyên kích thước, nét căng chi tiết (~0.2s)"),
+    FAST_4K("Fast 4K", 4, "Upscale 4K siêu tốc, nét viền tức thì (~0.3s)"),
+    AI_EDSR_2X("AI 2x (EDSR)", 2, "Mạng nơ-ron EDSR khôi phục chi tiết x2"),
+    AI_ESRGAN_4X("AI 4K (ESRGAN)", 4, "Mạng nơ-ron ESRGAN tái tạo 4K chuyên sâu")
+}
+
+enum class BackgroundStyle(val title: String) {
+    TRANSPARENT("Trong suốt (PNG)"),
+    WHITE("Nền Trắng"),
+    BLACK("Nền Đen")
+}
+
+enum class ExportFormat(val extension: String, val mimeType: String) {
+    JPG("jpg", "image/jpeg"),
+    PNG("png", "image/png")
 }
 
 data class ExecutionEngine(
@@ -63,16 +76,10 @@ class ImageEnhancer(private val context: Context) {
      * Tier 3: Multi-core CPU (XNNPACK)
      */
     private fun createExecutionEngine(
-        mode: EnhancementMode,
+        modelPath: String,
         useHardwareAcceleration: Boolean,
         tileSize: Int
     ): ExecutionEngine {
-        val modelPath = when (mode) {
-            EnhancementMode.AI_ESRGAN_4X -> "models/esrgan_quant.tflite"
-            EnhancementMode.AI_EDSR_2X -> "models/edsr_x2_quant.tflite"
-            EnhancementMode.PRO_SHARP -> throw IllegalArgumentException("Pro sharp does not use TFLite")
-        }
-
         val modelBuffer = loadModelFile(modelPath)
 
         if (useHardwareAcceleration) {
@@ -118,11 +125,11 @@ class ImageEnhancer(private val context: Context) {
         val interpreter = Interpreter(modelBuffer, cpuOptions)
         interpreter.resizeInput(0, intArrayOf(1, tileSize, tileSize, 3))
         interpreter.allocateTensors()
-        return ExecutionEngine(interpreter, null, null, "CPU Đa Nhân ($numCores Threads XNNPACK)")
+        return ExecutionEngine(interpreter, null, null, "CPU Đa Nhân ($numCores Threads)")
     }
 
     /**
-     * Main Enhancement Pipeline
+     * Main Enhancement Pipeline (Sharpening and Upscaling)
      */
     suspend fun enhance(
         inputBitmap: Bitmap,
@@ -138,12 +145,24 @@ class ImageEnhancer(private val context: Context) {
                 onProgress(1.0f, "Hoàn tất làm nét Pro Sharp!")
                 sharpened
             }
+            EnhancementMode.FAST_4K -> {
+                onProgress(0.1f, "Đang tính toán ma trận điểm ảnh 4K...")
+                val targetW = min(3840, inputBitmap.width * 4)
+                val targetH = (targetW * (inputBitmap.height.toFloat() / inputBitmap.width)).toInt()
+                val upscaled = resizeImage(inputBitmap, targetW, targetH)
+                onProgress(0.6f, "Đang tái tạo viền sắc nét và độ tương phản...")
+                val crisp4k = applyProSharpeningAndClarity(upscaled, intensity = max(1.2f, intensity))
+                onProgress(1.0f, "Hoàn tất Fast 4K!")
+                crisp4k
+            }
             EnhancementMode.AI_EDSR_2X, EnhancementMode.AI_ESRGAN_4X -> {
                 val scale = mode.scale
-                val tileSize = 128
-                onProgress(0.05f, "Đang kết nối bộ tăng tốc phần cứng...")
+                val modelPath = if (mode == EnhancementMode.AI_ESRGAN_4X) "models/esrgan_quant.tflite" else "models/edsr_x2_quant.tflite"
+                // Using 256x256 tiles cuts tile count by ~75% compared to 128x128!
+                val tileSize = 256
+                onProgress(0.05f, "Đang chuẩn bị mạng nơ-ron (${if (useGpu) "GPU" else "CPU"})...")
 
-                val engine = createExecutionEngine(mode, useGpu, tileSize)
+                val engine = createExecutionEngine(modelPath, useGpu, tileSize)
                 try {
                     onProgress(0.08f, "Đang xử lý bằng: ${engine.hardwareName}")
                     val rawAiResult = processWithTiling(
@@ -153,10 +172,9 @@ class ImageEnhancer(private val context: Context) {
                         tileSize = tileSize,
                         onProgress = onProgress
                     )
-                    // Crisp texture finish to make 4K / 2K details pop on mobile screens
-                    onProgress(0.96f, "Đang hoàn thiện viền sắc nét...")
+                    onProgress(0.96f, "Đang tinh chỉnh độ nổi khối...")
                     val finalResult = applyProSharpeningAndClarity(rawAiResult, intensity = 1.0f)
-                    onProgress(1.0f, "Hoàn tất siêu phân giải ${mode.title}!")
+                    onProgress(1.0f, "Hoàn tất siêu phân giải AI!")
                     finalResult
                 } finally {
                     engine.close()
@@ -166,7 +184,126 @@ class ImageEnhancer(private val context: Context) {
     }
 
     /**
-     * Tiling engine to process large photos without running out of RAM (OOM)
+     * Offline Background Removal using MediaPipe / ML Kit Selfie Segmentation
+     * Runs in ~50ms on phone!
+     */
+    suspend fun removeBackground(
+        input: Bitmap,
+        style: BackgroundStyle,
+        onProgress: (Float, String) -> Unit
+    ): Bitmap = withContext(Dispatchers.Default) {
+        onProgress(0.1f, "Đang khởi chạy AI tách chủ thể...")
+        val modelBuffer = loadModelFile("models/selfie_segmentation.tflite")
+        val options = Interpreter.Options().apply {
+            setNumThreads(max(2, Runtime.getRuntime().availableProcessors()))
+            setUseXNNPACK(true)
+        }
+        val interpreter = Interpreter(modelBuffer, options)
+
+        try {
+            onProgress(0.3f, "Đang nhận diện biên dạng người/chủ thể...")
+            val modelInputSize = 256
+            val scaledForModel = Bitmap.createScaledBitmap(input, modelInputSize, modelInputSize, true)
+
+            // Input buffer: [1, 256, 256, 3] Float32
+            val inputBuffer = ByteBuffer.allocateDirect(1 * modelInputSize * modelInputSize * 3 * 4).apply {
+                order(ByteOrder.nativeOrder())
+            }
+            val inPixels = IntArray(modelInputSize * modelInputSize)
+            scaledForModel.getPixels(inPixels, 0, modelInputSize, 0, 0, modelInputSize, modelInputSize)
+
+            for (p in inPixels) {
+                inputBuffer.putFloat(((p shr 16) and 0xFF) / 255.0f)
+                inputBuffer.putFloat(((p shr 8) and 0xFF) / 255.0f)
+                inputBuffer.putFloat((p and 0xFF) / 255.0f)
+            }
+            scaledForModel.recycle()
+
+            // Output buffer: [1, 256, 256, 1] Float32
+            val outputBuffer = ByteBuffer.allocateDirect(1 * modelInputSize * modelInputSize * 1 * 4).apply {
+                order(ByteOrder.nativeOrder())
+            }
+
+            inputBuffer.rewind()
+            outputBuffer.rewind()
+            interpreter.run(inputBuffer, outputBuffer)
+
+            onProgress(0.7f, "Đang tách lớp nền và làm mềm viền tóc...")
+            outputBuffer.rewind()
+            val maskPixels = IntArray(modelInputSize * modelInputSize)
+            for (i in 0 until modelInputSize * modelInputSize) {
+                val confidence = outputBuffer.getFloat().coerceIn(0f, 1f)
+                val alpha = (confidence * 255f).toInt()
+                maskPixels[i] = (alpha shl 24) or (alpha shl 16) or (alpha shl 8) or alpha
+            }
+
+            val maskBitmap = Bitmap.createBitmap(maskPixels, modelInputSize, modelInputSize, Bitmap.Config.ARGB_8888)
+            val fullMask = Bitmap.createScaledBitmap(maskBitmap, input.width, input.height, true)
+            maskBitmap.recycle()
+
+            // Apply mask to original image
+            val outW = input.width
+            val outH = input.height
+            val resultBitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+
+            val origPixels = IntArray(outW * outH)
+            val fullMaskPixels = IntArray(outW * outH)
+            val finalPixels = IntArray(outW * outH)
+
+            input.getPixels(origPixels, 0, outW, 0, 0, outW, outH)
+            fullMask.getPixels(fullMaskPixels, 0, outW, 0, 0, outW, outH)
+            fullMask.recycle()
+
+            for (i in 0 until outW * outH) {
+                val orig = origPixels[i]
+                val maskAlpha = (fullMaskPixels[i] shr 24) and 0xFF
+
+                when (style) {
+                    BackgroundStyle.TRANSPARENT -> {
+                        // Keep RGB, set alpha to maskAlpha with soft threshold
+                        val softAlpha = if (maskAlpha > 180) 255 else if (maskAlpha < 60) 0 else ((maskAlpha - 60) * 255 / 120)
+                        finalPixels[i] = (softAlpha shl 24) or (orig and 0x00FFFFFF)
+                    }
+                    BackgroundStyle.WHITE -> {
+                        val factor = maskAlpha / 255.0f
+                        val r = (((orig shr 16) and 0xFF) * factor + 255 * (1f - factor)).toInt().coerceIn(0, 255)
+                        val g = (((orig shr 8) and 0xFF) * factor + 255 * (1f - factor)).toInt().coerceIn(0, 255)
+                        val b = ((orig and 0xFF) * factor + 255 * (1f - factor)).toInt().coerceIn(0, 255)
+                        finalPixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                    }
+                    BackgroundStyle.BLACK -> {
+                        val factor = maskAlpha / 255.0f
+                        val r = (((orig shr 16) and 0xFF) * factor).toInt().coerceIn(0, 255)
+                        val g = (((orig shr 8) and 0xFF) * factor).toInt().coerceIn(0, 255)
+                        val b = ((orig and 0xFF) * factor).toInt().coerceIn(0, 255)
+                        finalPixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                    }
+                }
+            }
+
+            resultBitmap.setPixels(finalPixels, 0, outW, 0, 0, outW, outH)
+            onProgress(1.0f, "Đã tách nền thành công!")
+            resultBitmap
+        } finally {
+            interpreter.close()
+        }
+    }
+
+    /**
+     * High-quality Image Resizer
+     */
+    fun resizeImage(src: Bitmap, targetWidth: Int, targetHeight: Int): Bitmap {
+        val output = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val srcRect = Rect(0, 0, src.width, src.height)
+        val dstRect = Rect(0, 0, targetWidth, targetHeight)
+        canvas.drawBitmap(src, srcRect, dstRect, paint)
+        return output
+    }
+
+    /**
+     * Highly-optimized Tiling Engine (Tile Size = 256 cuts total inferences by ~75%)
      */
     private fun processWithTiling(
         input: Bitmap,
@@ -250,21 +387,15 @@ class ImageEnhancer(private val context: Context) {
 
                 if (isInputFloat) {
                     for (pixel in inPixels) {
-                        val r = ((pixel shr 16) and 0xFF) / 255.0f
-                        val g = ((pixel shr 8) and 0xFF) / 255.0f
-                        val b = (pixel and 0xFF) / 255.0f
-                        inputByteBuffer.putFloat(r)
-                        inputByteBuffer.putFloat(g)
-                        inputByteBuffer.putFloat(b)
+                        inputByteBuffer.putFloat(((pixel shr 16) and 0xFF) / 255.0f)
+                        inputByteBuffer.putFloat(((pixel shr 8) and 0xFF) / 255.0f)
+                        inputByteBuffer.putFloat((pixel and 0xFF) / 255.0f)
                     }
                 } else {
                     for (pixel in inPixels) {
-                        val r = ((pixel shr 16) and 0xFF).toByte()
-                        val g = ((pixel shr 8) and 0xFF).toByte()
-                        val b = (pixel and 0xFF).toByte()
-                        inputByteBuffer.put(r)
-                        inputByteBuffer.put(g)
-                        inputByteBuffer.put(b)
+                        inputByteBuffer.put(((pixel shr 16) and 0xFF).toByte())
+                        inputByteBuffer.put(((pixel shr 8) and 0xFF).toByte())
+                        inputByteBuffer.put((pixel and 0xFF).toByte())
                     }
                 }
 
@@ -314,10 +445,7 @@ class ImageEnhancer(private val context: Context) {
     }
 
     /**
-     * Professional Dual-Frequency Sharpening & Micro-Contrast (Clarity) Engine:
-     * - Band 1: Adaptive High-Pass (Texture, eyelashes, edges, hair)
-     * - Band 2: Mid-Frequency Local Contrast (De-haze, structure, clear view)
-     * - Soft thresholding to prevent digital noise
+     * Professional Dual-Frequency Sharpening & Micro-Contrast (Clarity) Engine
      */
     private fun applyProSharpeningAndClarity(src: Bitmap, intensity: Float): Bitmap {
         val width = src.width
@@ -331,14 +459,11 @@ class ImageEnhancer(private val context: Context) {
 
         src.getPixels(srcPixels, 0, width, 0, 0, width, height)
 
-        // Adaptive radii based on image resolution (so it scales properly for 4K down to 1080p)
         val minDim = min(width, height)
         val fineRadius = max(2, minDim / 400)
         val wideRadius = max(6, minDim / 120)
 
-        // Pass 1: Fine-detail blur
         fastBoxBlur(srcPixels, fineBlurPixels, width, height, fineRadius)
-        // Pass 2: Mid-tone structure blur
         fastBoxBlur(srcPixels, wideBlurPixels, width, height, wideRadius)
 
         val fineWeight = 1.8f * intensity
@@ -363,7 +488,6 @@ class ImageEnhancer(private val context: Context) {
             val gWide = (wide shr 8) and 0xFF
             val bWide = wide and 0xFF
 
-            // Detail difference + Structure contrast difference
             val rDiff = fineWeight * (rOrig - rFine) + wideWeight * (rOrig - rWide)
             val gDiff = fineWeight * (gOrig - gFine) + wideWeight * (gOrig - gWide)
             val bDiff = fineWeight * (bOrig - bFine) + wideWeight * (bOrig - bWide)
@@ -467,16 +591,18 @@ class ImageEnhancer(private val context: Context) {
     }
 
     /**
-     * Save enhanced image to MediaStore and preserve camera EXIF
+     * Save enhanced image to MediaStore supporting both JPG (with EXIF) and PNG (lossless + alpha)
      */
     suspend fun saveImageToGallery(
         bitmap: Bitmap,
-        originalUri: Uri?
+        originalUri: Uri?,
+        format: ExportFormat = ExportFormat.JPG,
+        quality: Int = 98
     ): Uri? = withContext(Dispatchers.IO) {
-        val filename = "IMG_4K_${System.currentTimeMillis()}.jpg"
+        val filename = "IMG_4K_${System.currentTimeMillis()}.${format.extension}"
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(MediaStore.MediaColumns.MIME_TYPE, format.mimeType)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/ImagesTo4K")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -487,13 +613,14 @@ class ImageEnhancer(private val context: Context) {
         val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
 
         if (imageUri != null) {
-            val tempFile = File(context.cacheDir, "temp_export.jpg")
+            val tempFile = File(context.cacheDir, "temp_export.${format.extension}")
             val tempOut = FileOutputStream(tempFile)
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 98, tempOut)
+            val compressFormat = if (format == ExportFormat.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+            bitmap.compress(compressFormat, quality, tempOut)
             tempOut.flush()
             tempOut.close()
 
-            if (originalUri != null) {
+            if (format == ExportFormat.JPG && originalUri != null) {
                 ExifUtil.copyExif(context, originalUri, tempFile)
             }
 

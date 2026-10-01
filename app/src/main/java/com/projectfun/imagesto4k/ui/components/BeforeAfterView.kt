@@ -35,6 +35,7 @@ import kotlin.math.roundToInt
 fun BeforeAfterView(
     beforeBitmap: Bitmap,
     afterBitmap: Bitmap?,
+    afterLabel: String = "KẾT QUẢ",
     modifier: Modifier = Modifier
 ) {
     var sliderPosition by remember { mutableFloatStateOf(0.5f) }
@@ -101,6 +102,27 @@ fun BeforeAfterView(
             }
 
             if (afterImageBitmap == null) {
+                // Draw subtle checkerboard background for transparent images
+                val checkerSize = 24f
+                val cols = (drawW / checkerSize).toInt() + 1
+                val rows = (drawH / checkerSize).toInt() + 1
+                for (r in 0 until rows) {
+                    for (c in 0 until cols) {
+                        val color = if ((r + c) % 2 == 0) Color(0xFF262626) else Color(0xFF1A1A1A)
+                        val left = drawX + c * checkerSize
+                        val top = drawY + r * checkerSize
+                        val rectW = kotlin.math.min(drawW - (c * checkerSize), checkerSize)
+                        val rectH = kotlin.math.min(drawH - (r * checkerSize), checkerSize)
+                        if (rectW > 0 && rectH > 0) {
+                            drawRect(
+                                color = color,
+                                topLeft = Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(rectW, rectH)
+                            )
+                        }
+                    }
+                }
+
                 drawImage(
                     image = beforeImageBitmap,
                     dstOffset = IntOffset(drawX.toInt(), drawY.toInt()),
@@ -108,6 +130,27 @@ fun BeforeAfterView(
                 )
             } else {
                 val splitX = w * sliderPosition
+
+                // Draw subtle checkerboard background for transparent images
+                val checkerSize = 24f
+                val cols = (drawW / checkerSize).toInt() + 1
+                val rows = (drawH / checkerSize).toInt() + 1
+                for (r in 0 until rows) {
+                    for (c in 0 until cols) {
+                        val color = if ((r + c) % 2 == 0) Color(0xFF262626) else Color(0xFF1A1A1A)
+                        val left = drawX + c * checkerSize
+                        val top = drawY + r * checkerSize
+                        val rectW = kotlin.math.min(drawW - (c * checkerSize), checkerSize)
+                        val rectH = kotlin.math.min(drawH - (r * checkerSize), checkerSize)
+                        if (rectW > 0 && rectH > 0) {
+                            drawRect(
+                                color = color,
+                                topLeft = Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(rectW, rectH)
+                            )
+                        }
+                    }
+                }
 
                 // 1. Draw Before (Left side)
                 val leftClip = Path().apply {
@@ -215,7 +258,7 @@ fun BeforeAfterView(
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "ĐÃ LÀM NÉT 4K",
+                        text = afterLabel,
                         color = Color.Black,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold

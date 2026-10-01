@@ -12,6 +12,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -27,16 +28,27 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.projectfun.imagesto4k.data.BackgroundStyle
 import com.projectfun.imagesto4k.data.EnhancementMode
 import com.projectfun.imagesto4k.data.ExifUtil
+import com.projectfun.imagesto4k.data.ExportFormat
 import com.projectfun.imagesto4k.data.ImageEnhancer
 import com.projectfun.imagesto4k.ui.components.BeforeAfterView
 import com.projectfun.imagesto4k.ui.theme.*
 import kotlinx.coroutines.launch
 import java.io.InputStream
 import kotlin.math.roundToInt
+
+enum class ToolTab(val title: String, val emoji: String) {
+    ENHANCE("Làm Nét", "✨"),
+    RESIZE("Kích Thước", "📐"),
+    BACKGROUND("Tách Nền", "✂️"),
+    EXPORT("Lưu & Xuất", "💾")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,15 +57,31 @@ fun HomeScreen() {
     val coroutineScope = rememberCoroutineScope()
     val enhancer = remember { ImageEnhancer(context) }
 
+    // Navigation and Image State
+    var activeTab by remember { mutableStateOf(ToolTab.ENHANCE) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var originalBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var enhancedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var processedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var resultLabel by remember { mutableStateOf("KẾT QUẢ") }
     var exifSummary by remember { mutableStateOf("") }
 
-    var selectedMode by remember { mutableStateOf(EnhancementMode.AI_ESRGAN_4X) }
+    // Enhance Settings
+    var selectedMode by remember { mutableStateOf(EnhancementMode.FAST_4K) }
     var useGpu by remember { mutableStateOf(true) }
     var intensity by remember { mutableFloatStateOf(1.5f) }
 
+    // Resize Settings
+    var resizeScalePercent by remember { mutableFloatStateOf(100f) }
+    var customWidth by remember { mutableIntStateOf(0) }
+    var customHeight by remember { mutableIntStateOf(0) }
+
+    // Background Removal Settings
+    var selectedBgStyle by remember { mutableStateOf(BackgroundStyle.TRANSPARENT) }
+
+    // Export Settings
+    var selectedExportFormat by remember { mutableStateOf(ExportFormat.JPG) }
+
+    // Progress State
     var isProcessing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var progressText by remember { mutableStateOf("") }
@@ -63,11 +91,23 @@ fun HomeScreen() {
     ) { uri: Uri? ->
         if (uri != null) {
             selectedUri = uri
-            enhancedBitmap = null
+            processedBitmap = null
             loadBitmapFromUri(context, uri)?.let {
                 originalBitmap = it
+                customWidth = it.width
+                customHeight = it.height
+                resizeScalePercent = 100f
             }
             exifSummary = ExifUtil.getExifSummary(context, uri)
+        }
+    }
+
+    LaunchedEffect(originalBitmap, processedBitmap) {
+        val active = processedBitmap ?: originalBitmap
+        if (active != null) {
+            customWidth = active.width
+            customHeight = active.height
+            resizeScalePercent = 100f
         }
     }
 
@@ -82,19 +122,23 @@ fun HomeScreen() {
                         Text(
                             text = "Images to 4K",
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = Color.White,
+                            fontSize = 20.sp
                         )
                     }
                 },
                 actions = {
+                    // GPU / CPU Chip Toggle
                     Surface(
                         shape = CircleShape,
                         color = if (useGpu) NeonCyan.copy(alpha = 0.2f) else Color(0xFF333333),
-                        modifier = Modifier.padding(end = 12.dp)
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .clickable { useGpu = !useGpu }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
@@ -102,6 +146,39 @@ fun HomeScreen() {
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (useGpu) NeonCyan else Color.LightGray
+                            )
+                        }
+                    }
+
+                    if (originalBitmap != null) {
+                        // Reset to original button
+                        if (processedBitmap != null) {
+                            IconButton(
+                                onClick = {
+                                    processedBitmap = null
+                                    Toast.makeText(context, "Đã khôi phục về ảnh gốc!", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Hoàn tác",
+                                    tint = TextSecondary
+                                )
+                            }
+                        }
+
+                        // Pick new photo button
+                        IconButton(
+                            onClick = {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Đổi ảnh",
+                                tint = TextSecondary
                             )
                         }
                     }
@@ -118,25 +195,26 @@ fun HomeScreen() {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Main Content Area: Image Preview or Pick Placeholder
+            // Main Viewport (Image or Select Placeholder)
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 if (originalBitmap != null) {
                     BeforeAfterView(
                         beforeBitmap = originalBitmap!!,
-                        afterBitmap = enhancedBitmap
+                        afterBitmap = processedBitmap,
+                        afterLabel = resultLabel
                     )
                 } else {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(20.dp))
                             .background(DarkSurface)
-                            .border(1.dp, DarkBorder, RoundedCornerShape(16.dp))
+                            .border(1.dp, DarkBorder, RoundedCornerShape(20.dp))
                             .clickable {
                                 photoPickerLauncher.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -146,12 +224,12 @@ fun HomeScreen() {
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
                             modifier = Modifier.padding(24.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(72.dp)
+                                    .size(76.dp)
                                     .clip(CircleShape)
                                     .background(NeonCyan.copy(alpha = 0.15f)),
                                 contentAlignment = Alignment.Center
@@ -160,20 +238,21 @@ fun HomeScreen() {
                                     imageVector = Icons.Default.Add,
                                     contentDescription = null,
                                     tint = NeonCyan,
-                                    modifier = Modifier.size(36.dp)
+                                    modifier = Modifier.size(40.dp)
                                 )
                             }
                             Text(
-                                text = "Chọn bức ảnh cần làm nét",
+                                text = "Chọn bức ảnh cần chỉnh sửa",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary
                             )
                             Text(
-                                text = "Hỗ trợ ảnh chụp bị out nét, rung tay, mờ chi tiết.\nTự động tái tạo sắc nét và upscale lên chuẩn 4K.",
+                                text = "Làm nét siêu tốc • AI Upscale 4K • Tách nền Offline\nResize kích thước tự do • Xuất JPG & PNG",
                                 fontSize = 13.sp,
                                 color = TextSecondary,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                textAlign = TextAlign.Center,
+                                lineHeight = 18.sp
                             )
                             Button(
                                 onClick = {
@@ -203,148 +282,81 @@ fun HomeScreen() {
                     modifier = Modifier.fillMaxWidth(),
                     color = DarkSurface,
                     shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    tonalElevation = 4.dp
+                    tonalElevation = 6.dp
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp)
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // EXIF & Dimension specs
+                        // Quick Stats Line: EXIF info & Resolution
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = exifSummary,
-                                    fontSize = 12.sp,
-                                    color = NeonCyan,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = "Gốc: ${originalBitmap!!.width}x${originalBitmap!!.height} px" +
-                                            if (enhancedBitmap != null) " → Đích: ${enhancedBitmap!!.width}x${enhancedBitmap!!.height} px" else "",
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    photoPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Đổi ảnh",
-                                    tint = TextSecondary
-                                )
-                            }
+                            Text(
+                                text = if (exifSummary.isNotBlank()) exifSummary else "Ảnh thiết bị",
+                                fontSize = 11.sp,
+                                color = NeonCyan,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            val currentActive = processedBitmap ?: originalBitmap!!
+                            Text(
+                                text = "Gốc: ${originalBitmap!!.width}x${originalBitmap!!.height} → Đích: ${currentActive.width}x${currentActive.height}",
+                                fontSize = 11.sp,
+                                color = TextSecondary,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
 
-                        // Processing Mode Selection
+                        // Navigation Tabs (Làm Nét, Resize, Tách Nền, Xuất File)
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(DarkSurfaceElevated)
+                                .padding(3.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            EnhancementMode.values().forEach { mode ->
-                                val isSelected = selectedMode == mode
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = { selectedMode = mode },
-                                    label = {
+                            ToolTab.values().forEach { tab ->
+                                val isSelected = activeTab == tab
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(11.dp))
+                                        .background(if (isSelected) NeonCyan else Color.Transparent)
+                                        .clickable { activeTab = tab }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
                                         Text(
-                                            text = when (mode) {
-                                                EnhancementMode.AI_ESRGAN_4X -> "AI 4K (ESRGAN)"
-                                                EnhancementMode.AI_EDSR_2X -> "AI 2x (EDSR)"
-                                                EnhancementMode.PRO_SHARP -> "Pro Sharp"
-                                            },
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            text = tab.emoji,
+                                            fontSize = 13.sp
                                         )
-                                    },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = NeonCyan,
-                                        selectedLabelColor = Color.Black,
-                                        containerColor = DarkSurfaceElevated,
-                                        labelColor = TextPrimary
-                                    ),
-                                    shape = RoundedCornerShape(10.dp)
-                                )
+                                        Text(
+                                            text = tab.title,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Color.Black else TextSecondary
+                                        )
+                                    }
+                                }
                             }
                         }
 
-                        // Intensity Slider for Sharpening
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Mức độ làm nét (Sharpening Intensity):",
-                                    fontSize = 12.sp,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = "${(intensity * 100).roundToInt()}%",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = NeonCyan
-                                )
-                            }
-                            Slider(
-                                value = intensity,
-                                onValueChange = { intensity = it },
-                                valueRange = 0.5f..3.0f,
-                                steps = 24,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = NeonCyan,
-                                    activeTrackColor = NeonCyan,
-                                    inactiveTrackColor = DarkSurfaceElevated
-                                )
-                            )
-                        }
-
-                        // Hardware Acceleration Switch
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Tăng tốc phần cứng (GPU/NPU)",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = if (useGpu) "Tự động điều phối GPU/NPU chip máy" else "Dùng CPU đa nhân",
-                                    fontSize = 10.sp,
-                                    color = TextSecondary
-                                )
-                            }
-                            Switch(
-                                checked = useGpu,
-                                onCheckedChange = { useGpu = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.Black,
-                                    checkedTrackColor = NeonCyan
-                                )
-                            )
-                        }
-
-                        // Progress Section
+                        // Progress Indicator (Active during tasks)
                         AnimatedVisibility(visible = isProcessing) {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 LinearProgressIndicator(
                                     progress = progress,
                                     modifier = Modifier
@@ -356,76 +368,492 @@ fun HomeScreen() {
                                 )
                                 Text(
                                     text = progressText,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     color = NeonCyan
                                 )
                             }
                         }
 
-                        // Action Buttons
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    if (originalBitmap != null && !isProcessing) {
-                                        isProcessing = true
-                                        progress = 0f
-                                        progressText = "Đang khởi tạo thuật toán..."
+                        // TAB CONTENT DISPLAY
+                        when (activeTab) {
+                            ToolTab.ENHANCE -> {
+                                // 1. Mode Selection
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    EnhancementMode.values().forEach { mode ->
+                                        val isSelected = selectedMode == mode
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { selectedMode = mode },
+                                            label = {
+                                                Text(
+                                                    text = mode.title,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = NeonCyan,
+                                                selectedLabelColor = Color.Black,
+                                                containerColor = DarkSurfaceElevated,
+                                                labelColor = TextPrimary
+                                            ),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                    }
+                                }
 
-                                        coroutineScope.launch {
-                                            try {
-                                                val result = enhancer.enhance(
-                                                    inputBitmap = originalBitmap!!,
-                                                    mode = selectedMode,
-                                                    useGpu = useGpu,
-                                                    intensity = intensity,
-                                                    onProgress = { p, msg ->
+                                // Mode Description
+                                Text(
+                                    text = selectedMode.description,
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+
+                                // Intensity Slider
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Mức độ làm nét (Intensity):",
+                                            fontSize = 12.sp,
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            text = "${(intensity * 100).roundToInt()}%",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = NeonCyan
+                                        )
+                                    }
+                                    Slider(
+                                        value = intensity,
+                                        onValueChange = { intensity = it },
+                                        valueRange = 0.5f..3.0f,
+                                        steps = 24,
+                                        colors = SliderDefaults.colors(
+                                            thumbColor = NeonCyan,
+                                            activeTrackColor = NeonCyan,
+                                            inactiveTrackColor = DarkSurfaceElevated
+                                        )
+                                    )
+                                }
+
+                                // Enhance Action Button
+                                Button(
+                                    onClick = {
+                                        if (originalBitmap != null && !isProcessing) {
+                                            isProcessing = true
+                                            progress = 0f
+                                            progressText = "Đang khởi tạo thuật toán..."
+
+                                            coroutineScope.launch {
+                                                try {
+                                                    val source = processedBitmap ?: originalBitmap!!
+                                                    val result = enhancer.enhance(
+                                                        inputBitmap = source,
+                                                        mode = selectedMode,
+                                                        useGpu = useGpu,
+                                                        intensity = intensity,
+                                                        onProgress = { p, msg ->
+                                                            progress = p
+                                                            progressText = msg
+                                                        }
+                                                    )
+                                                    processedBitmap = result
+                                                    resultLabel = selectedMode.title
+                                                    Toast.makeText(context, "Làm nét hoàn tất!", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                    Toast.makeText(context, "Lỗi xử lý: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                                } finally {
+                                                    isProcessing = false
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !isProcessing,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = NeonCyan,
+                                        contentColor = Color.Black
+                                    )
+                                ) {
+                                    Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isProcessing) "Đang xử lý..." else "✨ Làm Nét Ngay (${selectedMode.title})",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            ToolTab.RESIZE -> {
+                                val srcW = (processedBitmap ?: originalBitmap!!).width
+                                val srcH = (processedBitmap ?: originalBitmap!!).height
+                                val aspectRatio = srcH.toFloat() / srcW.toFloat()
+
+                                Text(
+                                    text = "Chọn tỉ lệ hoặc độ phân giải tiêu chuẩn:",
+                                    fontSize = 12.sp,
+                                    color = TextPrimary
+                                )
+
+                                // Preset Resolutions Row
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    listOf(
+                                        "4K UHD" to 3840,
+                                        "2K QHD" to 2560,
+                                        "Full HD" to 1920,
+                                        "HD 720p" to 1280
+                                    ).forEach { (label, targetW) ->
+                                        val targetH = (targetW * aspectRatio).toInt()
+                                        FilterChip(
+                                            selected = customWidth == targetW,
+                                            onClick = {
+                                                customWidth = targetW
+                                                customHeight = targetH
+                                                resizeScalePercent = (targetW.toFloat() / srcW * 100f)
+                                            },
+                                            label = {
+                                                Text(text = "$label (${targetW}p)", fontSize = 11.sp)
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = NeonCyan,
+                                                selectedLabelColor = Color.Black,
+                                                containerColor = DarkSurfaceElevated,
+                                                labelColor = TextPrimary
+                                            ),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                    }
+                                }
+
+                                // Quick Percentages Row
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    listOf(50, 75, 150, 200).forEach { pct ->
+                                        val isSel = (resizeScalePercent.roundToInt() == pct)
+                                        FilterChip(
+                                            selected = isSel,
+                                            onClick = {
+                                                resizeScalePercent = pct.toFloat()
+                                                customWidth = (srcW * pct / 100f).toInt()
+                                                customHeight = (srcH * pct / 100f).toInt()
+                                            },
+                                            label = {
+                                                Text(text = "$pct%", fontSize = 11.sp)
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = NeonCyan,
+                                                selectedLabelColor = Color.Black,
+                                                containerColor = DarkSurfaceElevated,
+                                                labelColor = TextPrimary
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+
+                                // Target Dimension Box
+                                Surface(
+                                    color = DarkSurfaceElevated,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Kích thước đích:",
+                                            fontSize = 12.sp,
+                                            color = TextSecondary
+                                        )
+                                        Text(
+                                            text = "${customWidth} x ${customHeight} px (${resizeScalePercent.roundToInt()}%)",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = NeonCyan
+                                        )
+                                    }
+                                }
+
+                                // Apply Resize Button
+                                Button(
+                                    onClick = {
+                                        if (originalBitmap != null && customWidth > 0 && customHeight > 0) {
+                                            coroutineScope.launch {
+                                                val source = processedBitmap ?: originalBitmap!!
+                                                val resized = enhancer.resizeImage(source, customWidth, customHeight)
+                                                processedBitmap = resized
+                                                resultLabel = "RESIZE ${customWidth}x${customHeight}"
+                                                Toast.makeText(context, "Đã resize thành ${customWidth}x${customHeight} px!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = NeonCyan,
+                                        contentColor = Color.Black
+                                    )
+                                ) {
+                                    Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "📐 Áp Dụng Resize (${customWidth}x${customHeight})",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            ToolTab.BACKGROUND -> {
+                                Text(
+                                    text = "AI nhận diện chủ thể & người hoàn toàn Offline (MediaPipe ML):",
+                                    fontSize = 12.sp,
+                                    color = TextPrimary
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    BackgroundStyle.values().forEach { style ->
+                                        val isSelected = selectedBgStyle == style
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { selectedBgStyle = style },
+                                            label = {
+                                                Text(
+                                                    text = style.title,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = NeonCyan,
+                                                selectedLabelColor = Color.Black,
+                                                containerColor = DarkSurfaceElevated,
+                                                labelColor = TextPrimary
+                                            ),
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = when (selectedBgStyle) {
+                                        BackgroundStyle.TRANSPARENT -> "💡 Nền sẽ trong suốt (được tự động xuất định dạng PNG để giữ nền rỗng)."
+                                        BackgroundStyle.WHITE -> "💡 Thay nền cũ bằng nền trắng tinh khiết, thích hợp làm ảnh thẻ/chân dung."
+                                        BackgroundStyle.BLACK -> "💡 Thay nền cũ bằng nền đen studio chuyên nghiệp."
+                                    },
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+
+                                Button(
+                                    onClick = {
+                                        if (originalBitmap != null && !isProcessing) {
+                                            isProcessing = true
+                                            progress = 0.2f
+                                            progressText = "Đang phân tích chủ thể..."
+
+                                            coroutineScope.launch {
+                                                try {
+                                                    val source = originalBitmap!!
+                                                    val cutout = enhancer.removeBackground(source, selectedBgStyle) { p, msg ->
                                                         progress = p
                                                         progressText = msg
                                                     }
-                                                )
-                                                enhancedBitmap = result
-                                                Toast.makeText(context, "Làm nét hoàn tất!", Toast.LENGTH_SHORT).show()
-                                            } catch (e: Exception) {
-                                                e.printStackTrace()
-                                                Toast.makeText(context, "Lỗi xử lý: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                                            } finally {
-                                                isProcessing = false
+                                                    processedBitmap = cutout
+                                                    resultLabel = when (selectedBgStyle) {
+                                                        BackgroundStyle.TRANSPARENT -> "TÁCH NỀN (PNG)"
+                                                        BackgroundStyle.WHITE -> "NỀN TRẮNG"
+                                                        BackgroundStyle.BLACK -> "NỀN ĐEN"
+                                                    }
+                                                    if (selectedBgStyle == BackgroundStyle.TRANSPARENT) {
+                                                        selectedExportFormat = ExportFormat.PNG
+                                                    }
+                                                    Toast.makeText(context, "Tách nền hoàn tất!", Toast.LENGTH_SHORT).show()
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                    Toast.makeText(context, "Lỗi tách nền: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                                } finally {
+                                                    isProcessing = false
+                                                }
                                             }
                                         }
-                                    }
-                                },
-                                enabled = !isProcessing,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = NeonCyan,
-                                    contentColor = Color.Black
-                                )
-                            ) {
-                                Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isProcessing) "Đang xử lý..." else "Làm Nét Ngay",
-                                    fontWeight = FontWeight.Bold
-                                )
+                                    },
+                                    enabled = !isProcessing,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = NeonCyan,
+                                        contentColor = Color.Black
+                                    )
+                                ) {
+                                    Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isProcessing) "Đang tách..." else "✂️ Tách Nền Ngay",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
 
-                            if (enhancedBitmap != null) {
+                            ToolTab.EXPORT -> {
+                                Text(
+                                    text = "Chọn định dạng xuất file mong muốn:",
+                                    fontSize = 12.sp,
+                                    color = TextPrimary
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // JPG Option Card
+                                    val isJpg = selectedExportFormat == ExportFormat.JPG
+                                    Surface(
+                                        color = if (isJpg) NeonCyan.copy(alpha = 0.15f) else DarkSurfaceElevated,
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isJpg) NeonCyan else Color.Transparent
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { selectedExportFormat = ExportFormat.JPG }
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "JPG (Khuyên dùng)",
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isJpg) NeonCyan else TextPrimary
+                                                )
+                                                RadioButton(
+                                                    selected = isJpg,
+                                                    onClick = { selectedExportFormat = ExportFormat.JPG },
+                                                    colors = RadioButtonDefaults.colors(selectedColor = NeonCyan)
+                                                )
+                                            }
+                                            Text(
+                                                text = "Giữ nguyên thông số máy ảnh EXIF (ISO, khẩu độ). Dung lượng nhẹ tối ưu.",
+                                                fontSize = 11.sp,
+                                                color = TextSecondary
+                                            )
+                                        }
+                                    }
+
+                                    // PNG Option Card
+                                    val isPng = selectedExportFormat == ExportFormat.PNG
+                                    Surface(
+                                        color = if (isPng) NeonCyan.copy(alpha = 0.15f) else DarkSurfaceElevated,
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isPng) NeonCyan else Color.Transparent
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { selectedExportFormat = ExportFormat.PNG }
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "PNG (Không nén)",
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isPng) NeonCyan else TextPrimary
+                                                )
+                                                RadioButton(
+                                                    selected = isPng,
+                                                    onClick = { selectedExportFormat = ExportFormat.PNG },
+                                                    colors = RadioButtonDefaults.colors(selectedColor = NeonCyan)
+                                                )
+                                            }
+                                            Text(
+                                                text = "Bảo toàn 100% pixel, hỗ trợ nền trong suốt khi tách nền.",
+                                                fontSize = 11.sp,
+                                                color = TextSecondary
+                                            )
+                                        }
+                                    }
+                                }
+
+                                val finalBitmap = processedBitmap ?: originalBitmap!!
+                                Surface(
+                                    color = DarkSurfaceElevated,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = "Thông tin file xuất:",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            text = "• Độ phân giải: ${finalBitmap.width} x ${finalBitmap.height} px\n" +
+                                                    "• Định dạng: .${selectedExportFormat.extension.uppercase()} (${selectedExportFormat.mimeType})\n" +
+                                                    "• Thư mục lưu: Bộ sưu tập ảnh (Pictures/ImagesTo4K)",
+                                            fontSize = 11.sp,
+                                            color = TextSecondary,
+                                            lineHeight = 16.sp
+                                        )
+                                    }
+                                }
+
+                                // Save Button
                                 Button(
                                     onClick = {
                                         coroutineScope.launch {
-                                            val savedUri = enhancer.saveImageToGallery(enhancedBitmap!!, selectedUri)
+                                            val savedUri = enhancer.saveImageToGallery(
+                                                bitmap = finalBitmap,
+                                                originalUri = selectedUri,
+                                                format = selectedExportFormat
+                                            )
                                             if (savedUri != null) {
-                                                Toast.makeText(context, "Đã lưu ảnh sắc nét kèm thông số EXIF vào Thư viện!", Toast.LENGTH_LONG).show()
+                                                Toast.makeText(
+                                                    context,
+                                                    "Đã lưu ảnh .${selectedExportFormat.extension.uppercase()} vào Thư viện thành công!",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
                                             } else {
                                                 Toast.makeText(context, "Không thể lưu ảnh", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     },
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = AccentGreen,
@@ -435,7 +863,7 @@ fun HomeScreen() {
                                     Icon(imageVector = Icons.Default.Check, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Lưu Ảnh",
+                                        text = "💾 Lưu Vào Bộ Sưu Tập (.${selectedExportFormat.extension.uppercase()})",
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
