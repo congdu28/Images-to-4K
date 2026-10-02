@@ -39,8 +39,11 @@ import com.projectfun.imagesto4k.data.ExportFormat
 import com.projectfun.imagesto4k.data.ImageEnhancer
 import com.projectfun.imagesto4k.ui.components.BeforeAfterView
 import com.projectfun.imagesto4k.ui.theme.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.InputStream
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 enum class ToolTab(val title: String, val emoji: String) {
@@ -81,7 +84,8 @@ fun HomeScreen() {
     // Export Settings
     var selectedExportFormat by remember { mutableStateOf(ExportFormat.JPG) }
 
-    // Progress State
+    // Coroutine Job for Cancellation Support
+    var processingJob by remember { mutableStateOf<Job?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var progressText by remember { mutableStateOf("") }
@@ -90,8 +94,18 @@ fun HomeScreen() {
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            selectedUri = uri
+            // Cancel running task if any
+            processingJob?.cancel()
+            processingJob = null
+            isProcessing = false
+
+            // Recycle previous bitmaps to free memory
+            processedBitmap?.recycle()
             processedBitmap = null
+            originalBitmap?.recycle()
+            originalBitmap = null
+
+            selectedUri = uri
             loadBitmapFromUri(context, uri)?.let {
                 originalBitmap = it
                 customWidth = it.width
@@ -99,6 +113,7 @@ fun HomeScreen() {
                 resizeScalePercent = 100f
             }
             exifSummary = ExifUtil.getExifSummary(context, uri)
+            System.gc()
         }
     }
 
@@ -155,7 +170,12 @@ fun HomeScreen() {
                         if (processedBitmap != null) {
                             IconButton(
                                 onClick = {
+                                    processingJob?.cancel()
+                                    processingJob = null
+                                    isProcessing = false
+                                    processedBitmap?.recycle()
                                     processedBitmap = null
+                                    System.gc()
                                     Toast.makeText(context, "Đã khôi phục về ảnh gốc!", Toast.LENGTH_SHORT).show()
                                 }
                             ) {
@@ -331,7 +351,7 @@ fun HomeScreen() {
                                         .weight(1f)
                                         .clip(RoundedCornerShape(11.dp))
                                         .background(if (isSelected) NeonCyan else Color.Transparent)
-                                        .clickable { activeTab = tab }
+                                        .clickable(enabled = !isProcessing) { activeTab = tab }
                                         .padding(vertical = 8.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -354,9 +374,63 @@ fun HomeScreen() {
                             }
                         }
 
-                        // Progress Indicator (Active during tasks)
+                        // Progress Indicator with Dedicated CANCEL Button
                         AnimatedVisibility(visible = isProcessing) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(DarkSurfaceElevated)
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = progressText,
+                                        fontSize = 11.sp,
+                                        color = NeonCyan,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    // CANCEL BUTTON
+                                    Button(
+                                        onClick = {
+                                            processingJob?.cancel()
+                                            processingJob = null
+                                            isProcessing = false
+                                            progress = 0f
+                                            progressText = "Đã dừng thao tác"
+                                            Toast.makeText(context, "Đã hủy xử lý thành công!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFD32F2F),
+                                            contentColor = Color.White
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Hủy",
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Hủy",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
                                 LinearProgressIndicator(
                                     progress = progress,
                                     modifier = Modifier
@@ -364,12 +438,7 @@ fun HomeScreen() {
                                         .height(6.dp)
                                         .clip(RoundedCornerShape(3.dp)),
                                     color = NeonCyan,
-                                    trackColor = DarkSurfaceElevated
-                                )
-                                Text(
-                                    text = progressText,
-                                    fontSize = 11.sp,
-                                    color = NeonCyan
+                                    trackColor = DarkBorder
                                 )
                             }
                         }
@@ -453,7 +522,7 @@ fun HomeScreen() {
                                             progress = 0f
                                             progressText = "Đang khởi tạo thuật toán..."
 
-                                            coroutineScope.launch {
+                                            processingJob = coroutineScope.launch {
                                                 try {
                                                     val source = processedBitmap ?: originalBitmap!!
                                                     val result = enhancer.enhance(
@@ -469,11 +538,14 @@ fun HomeScreen() {
                                                     processedBitmap = result
                                                     resultLabel = selectedMode.title
                                                     Toast.makeText(context, "Làm nét hoàn tất!", Toast.LENGTH_SHORT).show()
-                                                } catch (e: Exception) {
+                                                } catch (e: CancellationException) {
+                                                    progressText = "Đã hủy thao tác"
+                                                } catch (e: Throwable) {
                                                     e.printStackTrace()
                                                     Toast.makeText(context, "Lỗi xử lý: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                                                 } finally {
                                                     isProcessing = false
+                                                    processingJob = null
                                                 }
                                             }
                                         }
@@ -489,7 +561,7 @@ fun HomeScreen() {
                                     Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = if (isProcessing) "Đang xử lý..." else "✨ Làm Nét Ngay (${selectedMode.title})",
+                                        text = if (isProcessing) "Đang xử lý (Có thể bấm Hủy ở trên)..." else "✨ Làm Nét Ngay (${selectedMode.title})",
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -599,15 +671,24 @@ fun HomeScreen() {
                                 Button(
                                     onClick = {
                                         if (originalBitmap != null && customWidth > 0 && customHeight > 0) {
-                                            coroutineScope.launch {
-                                                val source = processedBitmap ?: originalBitmap!!
-                                                val resized = enhancer.resizeImage(source, customWidth, customHeight)
-                                                processedBitmap = resized
-                                                resultLabel = "RESIZE ${customWidth}x${customHeight}"
-                                                Toast.makeText(context, "Đã resize thành ${customWidth}x${customHeight} px!", Toast.LENGTH_SHORT).show()
+                                            processingJob = coroutineScope.launch {
+                                                try {
+                                                    val source = processedBitmap ?: originalBitmap!!
+                                                    val resized = enhancer.resizeImage(source, customWidth, customHeight)
+                                                    processedBitmap = resized
+                                                    resultLabel = "RESIZE ${customWidth}x${customHeight}"
+                                                    Toast.makeText(context, "Đã resize thành ${customWidth}x${customHeight} px!", Toast.LENGTH_SHORT).show()
+                                                } catch (e: CancellationException) {
+                                                    // User cancelled
+                                                } catch (e: Throwable) {
+                                                    Toast.makeText(context, "Lỗi resize: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                                } finally {
+                                                    processingJob = null
+                                                }
                                             }
                                         }
                                     },
+                                    enabled = !isProcessing,
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.buttonColors(
@@ -676,7 +757,7 @@ fun HomeScreen() {
                                             progress = 0.2f
                                             progressText = "Đang phân tích chủ thể..."
 
-                                            coroutineScope.launch {
+                                            processingJob = coroutineScope.launch {
                                                 try {
                                                     val source = originalBitmap!!
                                                     val cutout = enhancer.removeBackground(source, selectedBgStyle) { p, msg ->
@@ -693,11 +774,14 @@ fun HomeScreen() {
                                                         selectedExportFormat = ExportFormat.PNG
                                                     }
                                                     Toast.makeText(context, "Tách nền hoàn tất!", Toast.LENGTH_SHORT).show()
-                                                } catch (e: Exception) {
+                                                } catch (e: CancellationException) {
+                                                    progressText = "Đã hủy tách nền"
+                                                } catch (e: Throwable) {
                                                     e.printStackTrace()
                                                     Toast.makeText(context, "Lỗi tách nền: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                                                 } finally {
                                                     isProcessing = false
+                                                    processingJob = null
                                                 }
                                             }
                                         }
@@ -713,7 +797,7 @@ fun HomeScreen() {
                                     Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = if (isProcessing) "Đang tách..." else "✂️ Tách Nền Ngay",
+                                        text = if (isProcessing) "Đang tách (Có thể bấm Hủy ở trên)..." else "✂️ Tách Nền Ngay",
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -876,12 +960,52 @@ fun HomeScreen() {
     }
 }
 
+/**
+ * Memory-safe bitmap loader preventing OOM from ultra-high megapixel camera photos.
+ * Limits loaded dimension safely within standard 4K boundaries.
+ */
 private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
     return try {
-        val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-        val bitmap = BitmapFactory.decodeStream(inputStream)
-        inputStream?.close()
-        bitmap
+        // Step 1: Query image dimensions without allocating byte arrays
+        val boundsOptions = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, boundsOptions)
+        }
+
+        val origW = boundsOptions.outWidth
+        val origH = boundsOptions.outHeight
+        if (origW <= 0 || origH <= 0) return null
+
+        // Step 2: Compute inSampleSize so loaded bitmap doesn't exceed 4096px
+        val maxDim = max(origW, origH)
+        var sampleSize = 1
+        while (maxDim / sampleSize > 4096) {
+            sampleSize *= 2
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+
+        val loadedBitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, decodeOptions)
+        } ?: return null
+
+        // If still > 3840px, scale down smoothly to standard 4K bounds
+        val curMax = max(loadedBitmap.width, loadedBitmap.height)
+        if (curMax > 3840) {
+            val scale = 3840f / curMax
+            val scaledW = (loadedBitmap.width * scale).toInt()
+            val scaledH = (loadedBitmap.height * scale).toInt()
+            val scaledBitmap = Bitmap.createScaledBitmap(loadedBitmap, scaledW, scaledH, true)
+            loadedBitmap.recycle()
+            scaledBitmap
+        } else {
+            loadedBitmap
+        }
     } catch (e: Exception) {
         null
     }
