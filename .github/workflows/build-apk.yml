@@ -82,22 +82,24 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
       with:
-        tag_name: v1.2.1
-        name: "Images to 4K v1.2.1 (Tối ưu RAM, Chống Crash & Thêm nút Hủy)"
+        tag_name: v1.3.0
+        name: "Images to 4K v1.3.0 (Tích hợp Google Gemini Pro Cloud AI)"
         draft: false
         prerelease: false
         body: |
           ## 📱 Tải file APK trực tiếp về điện thoại (Không cần giải nén .zip):
-          - 👉 **[Tải ImagesTo4K-Release.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.2.1/ImagesTo4K-Release.apk)** *(Khuyên dùng để cài đặt)*
-          - 👉 **[Tải ImagesTo4K-Debug.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.2.1/ImagesTo4K-Debug.apk)**
+          - 👉 **[Tải ImagesTo4K-Release.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.3.0/ImagesTo4K-Release.apk)** *(Khuyên dùng để cài đặt)*
+          - 👉 **[Tải ImagesTo4K-Debug.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.3.0/ImagesTo4K-Debug.apk)**
 
-          ### 🌟 Điểm mới trong bản v1.2.1:
-          - 🛑 **Nút HỦY xử lý tức thì**: Bạn có thể bấm nút "Hủy" bất kỳ lúc nào khi đang chạy AI/Làm nét/Tách nền mà không lo treo app.
-          - ⚡ **Khắc phục triệt để Lag & Crash (OOM)**: 
-            - Giảm hơn 75% lượng RAM tiêu thụ bằng thuật toán lọc ảnh in-place.
-            - Giới hạn chuẩn phân giải 4K UHD (3840px), loại bỏ việc sinh ảnh 8K gây nổ bộ nhớ.
-            - Tối ưu bộ đọc ảnh chống tràn bộ nhớ với ảnh camera độ phân giải cao (48MP/64MP/108MP).
-          - 🔄 **Cài đặt đè trực tiếp**: Cài trực tiếp đè lên bản v1.2.0 mà không cần gỡ.
+          ### 🌟 Điểm mới nổi bật trong bản v1.3.0:
+          - 🌐 **Tích hợp Google Gemini Pro Cloud AI**:
+            - Hỗ trợ mô hình cao cấp **Gemini 3 Pro Image (Nano Banana Pro)** & **Gemini 3.1 Flash Image**.
+            - Phục chế chi tiết ảnh mờ bằng GPU đám mây của Google mà không làm nóng điện thoại hay tốn pin.
+            - Tùy chọn cài đặt API Key an toàn và kiểm tra kết nối trực tiếp trong ứng dụng.
+            - Gợi ý prompt chuyên dụng cho ảnh chân dung (mắt/tóc), phong cảnh và khử nhiễu đêm.
+          - ⚡ **Chế độ kép linh hoạt (Offline & Online)**: Dễ dàng chuyển đổi giữa chip máy và Gemini Cloud.
+          - 🛑 **Nút Hủy xử lý tức thì**: Hỗ trợ hủy nhanh cả tác vụ Offline lẫn tác vụ mạng Gemini Online.
+          - 🔄 **Cài đặt đè trực tiếp**: Cài trực tiếp đè lên các bản cũ mà không cần gỡ.
         files: |
           dist/ImagesTo4K-Release.apk
           dist/ImagesTo4K-Debug.apk

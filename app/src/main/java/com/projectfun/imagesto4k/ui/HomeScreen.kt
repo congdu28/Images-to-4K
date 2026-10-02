@@ -28,15 +28,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.projectfun.imagesto4k.data.BackgroundStyle
-import com.projectfun.imagesto4k.data.EnhancementMode
-import com.projectfun.imagesto4k.data.ExifUtil
-import com.projectfun.imagesto4k.data.ExportFormat
-import com.projectfun.imagesto4k.data.ImageEnhancer
+import com.projectfun.imagesto4k.data.*
 import com.projectfun.imagesto4k.ui.components.BeforeAfterView
 import com.projectfun.imagesto4k.ui.theme.*
 import kotlinx.coroutines.CancellationException
@@ -51,6 +49,11 @@ enum class ToolTab(val title: String, val emoji: String) {
     RESIZE("Kích Thước", "📐"),
     BACKGROUND("Tách Nền", "✂️"),
     EXPORT("Lưu & Xuất", "💾")
+}
+
+enum class ProcessingEngine(val title: String, val badge: String) {
+    OFFLINE("Offline", "⚡"),
+    ONLINE_GEMINI("Gemini Pro", "🌐")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,7 +71,14 @@ fun HomeScreen() {
     var resultLabel by remember { mutableStateOf("KẾT QUẢ") }
     var exifSummary by remember { mutableStateOf("") }
 
-    // Enhance Settings
+    // Engine Selection (Offline chip vs Online Gemini Pro)
+    var selectedEngine by remember { mutableStateOf(ProcessingEngine.OFFLINE) }
+    var showGeminiDialog by remember { mutableStateOf(false) }
+    var geminiApiKey by remember { mutableStateOf(GeminiClient.getSavedApiKey(context)) }
+    var selectedGeminiModel by remember { mutableStateOf(GeminiClient.getSelectedModel(context)) }
+    var geminiCustomPrompt by remember { mutableStateOf("") }
+
+    // Offline Enhance Settings
     var selectedMode by remember { mutableStateOf(EnhancementMode.FAST_4K) }
     var useGpu by remember { mutableStateOf(true) }
     var intensity by remember { mutableFloatStateOf(1.5f) }
@@ -94,12 +104,10 @@ fun HomeScreen() {
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Cancel running task if any
             processingJob?.cancel()
             processingJob = null
             isProcessing = false
 
-            // Recycle previous bitmaps to free memory
             processedBitmap?.recycle()
             processedBitmap = null
             originalBitmap?.recycle()
@@ -138,31 +146,57 @@ fun HomeScreen() {
                             text = "Images to 4K",
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            fontSize = 20.sp
+                            fontSize = 19.sp
                         )
                     }
                 },
                 actions = {
-                    // GPU / CPU Chip Toggle
+                    // Engine Switcher: Offline vs Gemini Pro
                     Surface(
-                        shape = CircleShape,
-                        color = if (useGpu) NeonCyan.copy(alpha = 0.2f) else Color(0xFF333333),
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (selectedEngine == ProcessingEngine.ONLINE_GEMINI) NeonCyan.copy(alpha = 0.2f) else DarkSurfaceElevated,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (selectedEngine == ProcessingEngine.ONLINE_GEMINI) NeonCyan else Color(0xFF444444)
+                        ),
                         modifier = Modifier
-                            .padding(end = 8.dp)
-                            .clickable { useGpu = !useGpu }
+                            .padding(end = 4.dp)
+                            .clickable {
+                                if (selectedEngine == ProcessingEngine.OFFLINE) {
+                                    if (geminiApiKey.isBlank()) {
+                                        showGeminiDialog = true
+                                    } else {
+                                        selectedEngine = ProcessingEngine.ONLINE_GEMINI
+                                        Toast.makeText(context, "Đã chuyển sang chế độ Online (Gemini Pro)", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    selectedEngine = ProcessingEngine.OFFLINE
+                                    Toast.makeText(context, "Đã chuyển về chế độ Offline (Chip máy)", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = if (useGpu) "⚡ GPU/NPU" else "💻 CPU",
+                                text = "${selectedEngine.badge} ${selectedEngine.title}",
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (useGpu) NeonCyan else Color.LightGray
+                                fontWeight = FontWeight.Bold,
+                                color = if (selectedEngine == ProcessingEngine.ONLINE_GEMINI) NeonCyan else TextPrimary
                             )
                         }
+                    }
+
+                    // Settings Icon for Gemini API Key
+                    IconButton(onClick = { showGeminiDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Cài đặt Gemini",
+                            tint = if (geminiApiKey.isNotBlank()) NeonCyan else TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
 
                     if (originalBitmap != null) {
@@ -268,7 +302,7 @@ fun HomeScreen() {
                                 color = TextPrimary
                             )
                             Text(
-                                text = "Làm nét siêu tốc • AI Upscale 4K • Tách nền Offline\nResize kích thước tự do • Xuất JPG & PNG",
+                                text = "🌐 Gemini Pro Cloud AI • ⚡ NPU/GPU Offline 4K\n✂️ Tách nền Offline • 📐 Resize tự do • 💾 Xuất JPG/PNG",
                                 fontSize = 13.sp,
                                 color = TextSecondary,
                                 textAlign = TextAlign.Center,
@@ -446,124 +480,251 @@ fun HomeScreen() {
                         // TAB CONTENT DISPLAY
                         when (activeTab) {
                             ToolTab.ENHANCE -> {
-                                // 1. Mode Selection
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    EnhancementMode.values().forEach { mode ->
-                                        val isSelected = selectedMode == mode
-                                        FilterChip(
-                                            selected = isSelected,
-                                            onClick = { selectedMode = mode },
-                                            label = {
-                                                Text(
-                                                    text = mode.title,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                                )
-                                            },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = NeonCyan,
-                                                selectedLabelColor = Color.Black,
-                                                containerColor = DarkSurfaceElevated,
-                                                labelColor = TextPrimary
-                                            ),
-                                            shape = RoundedCornerShape(10.dp)
-                                        )
-                                    }
-                                }
-
-                                // Mode Description
-                                Text(
-                                    text = selectedMode.description,
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
-
-                                // Intensity Slider
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                if (selectedEngine == ProcessingEngine.ONLINE_GEMINI) {
+                                    // ONLINE GEMINI PRO PANEL
+                                    Surface(
+                                        color = DarkSurfaceElevated,
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text(
-                                            text = "Mức độ làm nét (Intensity):",
-                                            fontSize = 12.sp,
-                                            color = TextPrimary
-                                        )
-                                        Text(
-                                            text = "${(intensity * 100).roundToInt()}%",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = NeonCyan
-                                        )
-                                    }
-                                    Slider(
-                                        value = intensity,
-                                        onValueChange = { intensity = it },
-                                        valueRange = 0.5f..3.0f,
-                                        steps = 24,
-                                        colors = SliderDefaults.colors(
-                                            thumbColor = NeonCyan,
-                                            activeTrackColor = NeonCyan,
-                                            inactiveTrackColor = DarkSurfaceElevated
-                                        )
-                                    )
-                                }
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "🌐 Mô hình: ${selectedGeminiModel.displayName}",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = NeonCyan
+                                                )
+                                                Text(
+                                                    text = "Đổi",
+                                                    fontSize = 11.sp,
+                                                    color = NeonCyan,
+                                                    modifier = Modifier.clickable { showGeminiDialog = true }
+                                                )
+                                            }
+                                            Text(
+                                                text = selectedGeminiModel.description,
+                                                fontSize = 11.sp,
+                                                color = TextSecondary
+                                            )
 
-                                // Enhance Action Button
-                                Button(
-                                    onClick = {
-                                        if (originalBitmap != null && !isProcessing) {
-                                            isProcessing = true
-                                            progress = 0f
-                                            progressText = "Đang khởi tạo thuật toán..."
-
-                                            processingJob = coroutineScope.launch {
-                                                try {
-                                                    val source = processedBitmap ?: originalBitmap!!
-                                                    val result = enhancer.enhance(
-                                                        inputBitmap = source,
-                                                        mode = selectedMode,
-                                                        useGpu = useGpu,
-                                                        intensity = intensity,
-                                                        onProgress = { p, msg ->
-                                                            progress = p
-                                                            progressText = msg
-                                                        }
+                                            // Quick prompt presets
+                                            Text(
+                                                text = "Gợi ý phong cách phục chế:",
+                                                fontSize = 11.sp,
+                                                color = TextPrimary
+                                            )
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .horizontalScroll(rememberScrollState()),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                listOf(
+                                                    "Chân dung sắc nét (Mắt & Tóc)" to "Restore and sharpen facial details, eyes, eyelashes, and hair strands to crystal-clear 4K. Preserve exact facial identity and natural skin textures.",
+                                                    "Phong cảnh & Thiên nhiên" to "Enhance natural landscapes, tree leaves, foliage, distant mountains, and sky clarity in ultra high resolution 4K.",
+                                                    "Khử mờ rung tay & nhiễu đêm" to "Denoise, deblur, and recover crisp edges from motion blur or low-light noise with realistic lighting."
+                                                ).forEach { (label, prompt) ->
+                                                    FilterChip(
+                                                        selected = geminiCustomPrompt == prompt,
+                                                        onClick = {
+                                                            geminiCustomPrompt = if (geminiCustomPrompt == prompt) "" else prompt
+                                                        },
+                                                        label = { Text(text = label, fontSize = 11.sp) },
+                                                        colors = FilterChipDefaults.filterChipColors(
+                                                            selectedContainerColor = NeonCyan,
+                                                            selectedLabelColor = Color.Black,
+                                                            containerColor = DarkBackground,
+                                                            labelColor = TextPrimary
+                                                        ),
+                                                        shape = RoundedCornerShape(8.dp)
                                                     )
-                                                    processedBitmap = result
-                                                    resultLabel = selectedMode.title
-                                                    Toast.makeText(context, "Làm nét hoàn tất!", Toast.LENGTH_SHORT).show()
-                                                } catch (e: CancellationException) {
-                                                    progressText = "Đã hủy thao tác"
-                                                } catch (e: Throwable) {
-                                                    e.printStackTrace()
-                                                    Toast.makeText(context, "Lỗi xử lý: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                                                } finally {
-                                                    isProcessing = false
-                                                    processingJob = null
                                                 }
                                             }
                                         }
-                                    },
-                                    enabled = !isProcessing,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = NeonCyan,
-                                        contentColor = Color.Black
-                                    )
-                                ) {
-                                    Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    }
+
+                                    // Action Button for Gemini Pro
+                                    Button(
+                                        onClick = {
+                                            if (geminiApiKey.isBlank()) {
+                                                showGeminiDialog = true
+                                                return@Button
+                                            }
+                                            if (originalBitmap != null && !isProcessing) {
+                                                isProcessing = true
+                                                progress = 0.05f
+                                                progressText = "Đang kết nối Google Gemini Cloud GPU..."
+
+                                                processingJob = coroutineScope.launch {
+                                                    try {
+                                                        val source = processedBitmap ?: originalBitmap!!
+                                                        val result = GeminiClient.enhanceWithGemini(
+                                                            inputBitmap = source,
+                                                            apiKey = geminiApiKey,
+                                                            model = selectedGeminiModel,
+                                                            customPrompt = geminiCustomPrompt.ifBlank { null },
+                                                            onProgress = { p, msg ->
+                                                                progress = p
+                                                                progressText = msg
+                                                            }
+                                                        )
+                                                        processedBitmap = result
+                                                        resultLabel = "GEMINI PRO 4K"
+                                                        Toast.makeText(context, "Gemini Pro phục chế ảnh hoàn tất!", Toast.LENGTH_SHORT).show()
+                                                    } catch (e: CancellationException) {
+                                                        progressText = "Đã hủy tác vụ Gemini"
+                                                    } catch (e: Throwable) {
+                                                        e.printStackTrace()
+                                                        Toast.makeText(context, "Lỗi Gemini: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                                    } finally {
+                                                        isProcessing = false
+                                                        processingJob = null
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = !isProcessing,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = NeonCyan,
+                                            contentColor = Color.Black
+                                        )
+                                    ) {
+                                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isProcessing) "Đang xử lý trên Cloud AI (Bấm Hủy ở trên)..." else "🌐 Phục Chế Bằng Gemini Pro AI",
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                } else {
+                                    // OFFLINE HARDWARE ACCELERATION PANEL
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        EnhancementMode.values().forEach { mode ->
+                                            val isSelected = selectedMode == mode
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = { selectedMode = mode },
+                                                label = {
+                                                    Text(
+                                                        text = mode.title,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                    )
+                                                },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = NeonCyan,
+                                                    selectedLabelColor = Color.Black,
+                                                    containerColor = DarkSurfaceElevated,
+                                                    labelColor = TextPrimary
+                                                ),
+                                                shape = RoundedCornerShape(10.dp)
+                                            )
+                                        }
+                                    }
+
                                     Text(
-                                        text = if (isProcessing) "Đang xử lý (Có thể bấm Hủy ở trên)..." else "✨ Làm Nét Ngay (${selectedMode.title})",
-                                        fontWeight = FontWeight.Bold
+                                        text = selectedMode.description,
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
                                     )
+
+                                    // Intensity Slider
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = "Mức độ làm nét (Intensity):",
+                                                fontSize = 12.sp,
+                                                color = TextPrimary
+                                            )
+                                            Text(
+                                                text = "${(intensity * 100).roundToInt()}%",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = NeonCyan
+                                            )
+                                        }
+                                        Slider(
+                                            value = intensity,
+                                            onValueChange = { intensity = it },
+                                            valueRange = 0.5f..3.0f,
+                                            steps = 24,
+                                            colors = SliderDefaults.colors(
+                                                thumbColor = NeonCyan,
+                                                activeTrackColor = NeonCyan,
+                                                inactiveTrackColor = DarkSurfaceElevated
+                                            )
+                                        )
+                                    }
+
+                                    // Enhance Action Button
+                                    Button(
+                                        onClick = {
+                                            if (originalBitmap != null && !isProcessing) {
+                                                isProcessing = true
+                                                progress = 0f
+                                                progressText = "Đang khởi tạo thuật toán..."
+
+                                                processingJob = coroutineScope.launch {
+                                                    try {
+                                                        val source = processedBitmap ?: originalBitmap!!
+                                                        val result = enhancer.enhance(
+                                                            inputBitmap = source,
+                                                            mode = selectedMode,
+                                                            useGpu = useGpu,
+                                                            intensity = intensity,
+                                                            onProgress = { p, msg ->
+                                                                progress = p
+                                                                progressText = msg
+                                                            }
+                                                        )
+                                                        processedBitmap = result
+                                                        resultLabel = selectedMode.title
+                                                        Toast.makeText(context, "Làm nét hoàn tất!", Toast.LENGTH_SHORT).show()
+                                                    } catch (e: CancellationException) {
+                                                        progressText = "Đã hủy thao tác"
+                                                    } catch (e: Throwable) {
+                                                        e.printStackTrace()
+                                                        Toast.makeText(context, "Lỗi xử lý: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                                    } finally {
+                                                        isProcessing = false
+                                                        processingJob = null
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = !isProcessing,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = NeonCyan,
+                                            contentColor = Color.Black
+                                        )
+                                    ) {
+                                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isProcessing) "Đang xử lý (Có thể bấm Hủy ở trên)..." else "✨ Làm Nét Ngay (${selectedMode.title})",
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
 
@@ -814,7 +975,6 @@ fun HomeScreen() {
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    // JPG Option Card
                                     val isJpg = selectedExportFormat == ExportFormat.JPG
                                     Surface(
                                         color = if (isJpg) NeonCyan.copy(alpha = 0.15f) else DarkSurfaceElevated,
@@ -853,7 +1013,6 @@ fun HomeScreen() {
                                         }
                                     }
 
-                                    // PNG Option Card
                                     val isPng = selectedExportFormat == ExportFormat.PNG
                                     Surface(
                                         color = if (isPng) NeonCyan.copy(alpha = 0.15f) else DarkSurfaceElevated,
@@ -958,6 +1117,140 @@ fun HomeScreen() {
             }
         }
     }
+
+    // GEMINI PRO SETTINGS DIALOG
+    if (showGeminiDialog) {
+        var tempApiKey by remember { mutableStateOf(geminiApiKey) }
+        var isKeyVisible by remember { mutableStateOf(false) }
+        var isTestingKey by remember { mutableStateOf(false) }
+        var testResultMsg by remember { mutableStateOf("") }
+        var tempModel by remember { mutableStateOf(selectedGeminiModel) }
+
+        AlertDialog(
+            onDismissRequest = { showGeminiDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(text = "🌐 Cài Đặt Gemini Pro Cloud AI", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Sử dụng sức mạnh siêu máy chủ Google Cloud để phục chế và làm nét ảnh chất lượng studio mà không làm nóng điện thoại.",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+
+                    OutlinedTextField(
+                        value = tempApiKey,
+                        onValueChange = { tempApiKey = it },
+                        label = { Text("Gemini API Key") },
+                        placeholder = { Text("AIzaSy...") },
+                        singleLine = true,
+                        visualTransformation = if (isKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { isKeyVisible = !isKeyVisible }) {
+                                Icon(
+                                    imageVector = if (isKeyVisible) Icons.Default.Check else Icons.Default.Info,
+                                    contentDescription = null
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (testResultMsg.isNotBlank()) {
+                        Text(
+                            text = testResultMsg,
+                            fontSize = 11.sp,
+                            color = if (testResultMsg.contains("thành công")) AccentGreen else Color(0xFFFF5252),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Test Connection Button
+                    Button(
+                        onClick = {
+                            if (tempApiKey.isNotBlank()) {
+                                isTestingKey = true
+                                testResultMsg = "Đang kiểm tra kết nối tới Google AI..."
+                                coroutineScope.launch {
+                                    val result = GeminiClient.testApiKey(tempApiKey)
+                                    isTestingKey = false
+                                    testResultMsg = result.getOrElse { it.localizedMessage ?: "Lỗi kết nối" }
+                                }
+                            }
+                        },
+                        enabled = !isTestingKey && tempApiKey.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated, contentColor = NeonCyan),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = if (isTestingKey) "Đang kiểm tra..." else "Kiểm Tra API Key")
+                    }
+
+                    Text(
+                        text = "Chọn mô hình Cloud AI:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+
+                    GeminiModel.values().forEach { model ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { tempModel = model }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = tempModel == model,
+                                onClick = { tempModel = model },
+                                colors = RadioButtonDefaults.colors(selectedColor = NeonCyan)
+                            )
+                            Column(modifier = Modifier.padding(start = 6.dp)) {
+                                Text(text = model.displayName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text(text = model.description, fontSize = 10.sp, color = TextSecondary)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        geminiApiKey = tempApiKey.trim()
+                        selectedGeminiModel = tempModel
+                        GeminiClient.saveApiKey(context, geminiApiKey)
+                        GeminiClient.saveSelectedModel(context, tempModel)
+                        if (geminiApiKey.isNotBlank()) {
+                            selectedEngine = ProcessingEngine.ONLINE_GEMINI
+                        }
+                        showGeminiDialog = false
+                        Toast.makeText(context, "Đã lưu cấu hình Gemini Pro!", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonCyan, contentColor = Color.Black)
+                ) {
+                    Text(text = "Lưu & Kích Hoạt", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGeminiDialog = false }) {
+                    Text(text = "Đóng", color = TextSecondary)
+                }
+            },
+            containerColor = DarkSurface,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
 }
 
 /**
@@ -966,7 +1259,6 @@ fun HomeScreen() {
  */
 private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
     return try {
-        // Step 1: Query image dimensions without allocating byte arrays
         val boundsOptions = BitmapFactory.Options().apply {
             inJustDecodeBounds = true
         }
@@ -978,7 +1270,6 @@ private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
         val origH = boundsOptions.outHeight
         if (origW <= 0 || origH <= 0) return null
 
-        // Step 2: Compute inSampleSize so loaded bitmap doesn't exceed 4096px
         val maxDim = max(origW, origH)
         var sampleSize = 1
         while (maxDim / sampleSize > 4096) {
@@ -994,7 +1285,6 @@ private fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
             BitmapFactory.decodeStream(stream, null, decodeOptions)
         } ?: return null
 
-        // If still > 3840px, scale down smoothly to standard 4K bounds
         val curMax = max(loadedBitmap.width, loadedBitmap.height)
         if (curMax > 3840) {
             val scale = 3840f / curMax
