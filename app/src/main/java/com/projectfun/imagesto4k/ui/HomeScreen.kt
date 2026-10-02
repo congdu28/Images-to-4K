@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,9 +47,9 @@ import kotlin.math.roundToInt
 
 enum class ToolTab(val title: String, val emoji: String) {
     ENHANCE("Làm Nét", "✨"),
-    RESIZE("Kích Thước", "📐"),
+    RESIZE("Resize", "📐"),
     BACKGROUND("Tách Nền", "✂️"),
-    EXPORT("Lưu & Xuất", "💾")
+    EXPORT("Xuất File", "💾")
 }
 
 enum class ProcessingEngine(val title: String, val badge: String) {
@@ -144,65 +145,26 @@ fun HomeScreen() {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(NeonCyan.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = "4K", fontSize = 11.sp, fontWeight = FontWeight.Black, color = NeonCyan)
+                        }
                         Text(
                             text = "Images to 4K",
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            fontSize = 19.sp
+                            fontSize = 18.sp
                         )
                     }
                 },
                 actions = {
-                    // Engine Switcher: Offline vs Gemini Pro
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (selectedEngine == ProcessingEngine.ONLINE_GEMINI) NeonCyan.copy(alpha = 0.2f) else DarkSurfaceElevated,
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (selectedEngine == ProcessingEngine.ONLINE_GEMINI) NeonCyan else Color(0xFF444444)
-                        ),
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .clickable {
-                                if (selectedEngine == ProcessingEngine.OFFLINE) {
-                                    if (geminiApiKey.isBlank()) {
-                                        showGeminiDialog = true
-                                    } else {
-                                        selectedEngine = ProcessingEngine.ONLINE_GEMINI
-                                        Toast.makeText(context, "Đã chuyển sang chế độ Online (Gemini Pro)", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    selectedEngine = ProcessingEngine.OFFLINE
-                                    Toast.makeText(context, "Đã chuyển về chế độ Offline (Chip máy)", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = "${selectedEngine.badge} ${selectedEngine.title}",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (selectedEngine == ProcessingEngine.ONLINE_GEMINI) NeonCyan else TextPrimary
-                            )
-                        }
-                    }
-
-                    // Settings Icon for Gemini API Key
-                    IconButton(onClick = { showGeminiDialog = true }) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Cài đặt Gemini",
-                            tint = if (geminiApiKey.isNotBlank()) NeonCyan else TextSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
                     if (originalBitmap != null) {
-                        // Reset to original button
+                        // Reset to original button (only when processed)
                         if (processedBitmap != null) {
                             IconButton(
                                 onClick = {
@@ -217,9 +179,10 @@ fun HomeScreen() {
                                 }
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Hoàn tác",
-                                    tint = TextSecondary
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Hoàn tác về ảnh gốc",
+                                    tint = NeonCyan,
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
@@ -233,11 +196,22 @@ fun HomeScreen() {
                             }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Đổi ảnh",
-                                tint = TextSecondary
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Chọn ảnh khác",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
+                    }
+
+                    // Settings Icon for Gemini API Key & Model
+                    IconButton(onClick = { showGeminiDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Cài đặt Gemini",
+                            tint = if (geminiApiKey.isNotBlank()) NeonCyan else TextSecondary,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -504,6 +478,40 @@ fun HomeScreen() {
                         // TAB CONTENT DISPLAY
                         when (activeTab) {
                             ToolTab.ENHANCE -> {
+                                // Engine Selector: Segmented Control (Offline vs Gemini Cloud AI)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(DarkSurfaceElevated)
+                                        .border(1.dp, DarkBorder, RoundedCornerShape(12.dp))
+                                        .padding(3.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    listOf(
+                                        ProcessingEngine.ONLINE_GEMINI to "🌐 Gemini Cloud AI",
+                                        ProcessingEngine.OFFLINE to "⚡ NPU/GPU Thiết Bị"
+                                    ).forEach { (engine, label) ->
+                                        val isSelected = selectedEngine == engine
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(36.dp)
+                                                .clip(RoundedCornerShape(9.dp))
+                                                .background(if (isSelected) NeonCyan else Color.Transparent)
+                                                .clickable(enabled = !isProcessing) { selectedEngine = engine },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSelected) Color.Black else TextPrimary
+                                            )
+                                        }
+                                    }
+                                }
+
                                 if (selectedEngine == ProcessingEngine.ONLINE_GEMINI) {
                                     // ONLINE GEMINI PRO PANEL
                                     Surface(
@@ -513,63 +521,85 @@ fun HomeScreen() {
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text(
-                                                    text = "🌐 Mô hình: ${selectedGeminiModel.displayName}",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = NeonCyan
-                                                )
-                                                Text(
-                                                    text = "Đổi",
-                                                    fontSize = 11.sp,
-                                                    color = NeonCyan,
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "Mô hình: ${selectedGeminiModel.displayName}",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = NeonCyan
+                                                    )
+                                                    Text(
+                                                        text = selectedGeminiModel.description,
+                                                        fontSize = 11.sp,
+                                                        color = TextSecondary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Surface(
+                                                    color = NeonCyan.copy(alpha = 0.15f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.4f)),
                                                     modifier = Modifier.clickable { showGeminiDialog = true }
-                                                )
+                                                ) {
+                                                    Text(
+                                                        text = "Đổi ▾",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = NeonCyan,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                    )
+                                                }
                                             }
-                                            Text(
-                                                text = selectedGeminiModel.description,
-                                                fontSize = 11.sp,
-                                                color = TextSecondary
-                                            )
 
-                                            // Quick prompt presets
+                                            // Quick style presets: 3 equal-width columns
                                             Text(
-                                                text = "Gợi ý phong cách phục chế:",
+                                                text = "Chọn phong cách phục chế AI:",
                                                 fontSize = 11.sp,
                                                 color = TextPrimary
                                             )
                                             Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .horizontalScroll(rememberScrollState()),
+                                                modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 listOf(
-                                                    "Chân dung sắc nét (Mắt & Tóc)" to "Restore and sharpen facial details, eyes, eyelashes, and hair strands to crystal-clear 4K. Preserve exact facial identity and natural skin textures.",
-                                                    "Phong cảnh & Thiên nhiên" to "Enhance natural landscapes, tree leaves, foliage, distant mountains, and sky clarity in ultra high resolution 4K.",
-                                                    "Khử mờ rung tay & nhiễu đêm" to "Denoise, deblur, and recover crisp edges from motion blur or low-light noise with realistic lighting."
+                                                    "👤 Chân dung" to "Restore and sharpen facial details, eyes, eyelashes, and hair strands to crystal-clear 4K. Preserve exact facial identity and natural skin textures.",
+                                                    "🏞️ Phong cảnh" to "Enhance natural landscapes, tree leaves, foliage, distant mountains, and sky clarity in ultra high resolution 4K.",
+                                                    "🌙 Ban đêm" to "Denoise, deblur, and recover crisp edges from motion blur or low-light noise with realistic lighting."
                                                 ).forEach { (label, prompt) ->
-                                                    FilterChip(
-                                                        selected = geminiCustomPrompt == prompt,
-                                                        onClick = {
-                                                            geminiCustomPrompt = if (geminiCustomPrompt == prompt) "" else prompt
-                                                        },
-                                                        label = { Text(text = label, fontSize = 11.sp) },
-                                                        colors = FilterChipDefaults.filterChipColors(
-                                                            selectedContainerColor = NeonCyan,
-                                                            selectedLabelColor = Color.Black,
-                                                            containerColor = DarkBackground,
-                                                            labelColor = TextPrimary
-                                                        ),
-                                                        shape = RoundedCornerShape(8.dp)
-                                                    )
+                                                    val isSelected = geminiCustomPrompt == prompt
+                                                    Surface(
+                                                        color = if (isSelected) NeonCyan.copy(alpha = 0.2f) else DarkBackground,
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        border = BorderStroke(1.dp, if (isSelected) NeonCyan else DarkBorder),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(38.dp)
+                                                            .clickable {
+                                                                geminiCustomPrompt = if (isSelected) "" else prompt
+                                                            }
+                                                    ) {
+                                                        Box(
+                                                            contentAlignment = Alignment.Center,
+                                                            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = label,
+                                                                fontSize = 11.sp,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                                color = if (isSelected) NeonCyan else TextPrimary,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -619,62 +649,138 @@ fun HomeScreen() {
                                             }
                                         },
                                         enabled = !isProcessing,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(52.dp),
+                                        shape = RoundedCornerShape(14.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = NeonCyan,
                                             contentColor = Color.Black
                                         )
                                     ) {
-                                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
+                                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = if (isProcessing) "Đang xử lý trên Cloud AI (Bấm Hủy ở trên)..." else "🌐 Phục Chế Bằng Gemini Pro AI",
+                                            text = if (isProcessing) "Đang xử lý Cloud AI..." else "🌐 Phục Chế Bằng Gemini Pro AI",
+                                            fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
                                 } else {
                                     // OFFLINE HARDWARE ACCELERATION PANEL
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        EnhancementMode.values().forEach { mode ->
-                                            val isSelected = selectedMode == mode
-                                            FilterChip(
-                                                selected = isSelected,
-                                                onClick = { selectedMode = mode },
-                                                label = {
-                                                    Text(
-                                                        text = mode.title,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                                    )
-                                                },
-                                                colors = FilterChipDefaults.filterChipColors(
-                                                    selectedContainerColor = NeonCyan,
-                                                    selectedLabelColor = Color.Black,
-                                                    containerColor = DarkSurfaceElevated,
-                                                    labelColor = TextPrimary
-                                                ),
-                                                shape = RoundedCornerShape(10.dp)
-                                            )
+                                    // 2x2 Grid of Enhancement Modes
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        val modes = EnhancementMode.values()
+                                        val row1 = listOf(modes[0], modes[1]) // PRO_SHARP, FAST_4K
+                                        val row2 = listOf(modes[2], modes[3]) // AI_EDSR_2X, AI_ESRGAN_4X
+
+                                        listOf(row1, row2).forEach { rowModes ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                rowModes.forEach { mode ->
+                                                    val isSelected = selectedMode == mode
+                                                    Surface(
+                                                        color = if (isSelected) NeonCyan.copy(alpha = 0.15f) else DarkSurfaceElevated,
+                                                        shape = RoundedCornerShape(12.dp),
+                                                        border = BorderStroke(1.dp, if (isSelected) NeonCyan else DarkBorder),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(56.dp)
+                                                            .clickable { selectedMode = mode }
+                                                    ) {
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                                            verticalArrangement = Arrangement.Center
+                                                        ) {
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Text(
+                                                                    text = mode.title,
+                                                                    fontSize = 13.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = if (isSelected) NeonCyan else TextPrimary
+                                                                )
+                                                                Text(
+                                                                    text = "${mode.scale}x",
+                                                                    fontSize = 10.sp,
+                                                                    fontWeight = FontWeight.Black,
+                                                                    color = if (isSelected) NeonCyan else TextSecondary
+                                                                )
+                                                            }
+                                                            Text(
+                                                                text = when (mode) {
+                                                                    EnhancementMode.PRO_SHARP -> "Nét căng chi tiết 1x"
+                                                                    EnhancementMode.FAST_4K -> "Nét viền tức thì 4x"
+                                                                    EnhancementMode.AI_EDSR_2X -> "Mạng EDSR NPU 2x"
+                                                                    EnhancementMode.AI_ESRGAN_4X -> "ESRGAN AI 4K"
+                                                                },
+                                                                fontSize = 10.sp,
+                                                                color = TextSecondary,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
 
-                                    Text(
-                                        text = selectedMode.description,
-                                        fontSize = 11.sp,
-                                        color = TextSecondary
-                                    )
+                                    // Hardware Acceleration Switch Row
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(DarkSurfaceElevated)
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "Tăng tốc phần cứng (GPU / NPU)",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = TextPrimary
+                                            )
+                                            Text(
+                                                text = if (useGpu) "Đang bật tăng tốc phần cứng" else "Chạy CPU tiêu chuẩn",
+                                                fontSize = 10.sp,
+                                                color = TextSecondary
+                                            )
+                                        }
+                                        Switch(
+                                            checked = useGpu,
+                                            onCheckedChange = { useGpu = it },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = NeonCyan,
+                                                checkedTrackColor = NeonCyan.copy(alpha = 0.3f),
+                                                uncheckedThumbColor = TextSecondary,
+                                                uncheckedTrackColor = DarkBorder
+                                            )
+                                        )
+                                    }
 
-                                    // Intensity Slider
-                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    // Intensity Slider Box
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(DarkSurfaceElevated)
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
                                                 text = "Mức độ làm nét (Intensity):",
@@ -696,12 +802,13 @@ fun HomeScreen() {
                                             colors = SliderDefaults.colors(
                                                 thumbColor = NeonCyan,
                                                 activeTrackColor = NeonCyan,
-                                                inactiveTrackColor = DarkSurfaceElevated
-                                            )
+                                                inactiveTrackColor = DarkBorder
+                                            ),
+                                            modifier = Modifier.height(28.dp)
                                         )
                                     }
 
-                                    // Enhance Action Button
+                                    // Offline Enhance Action Button
                                     Button(
                                         onClick = {
                                             if (originalBitmap != null && !isProcessing) {
@@ -738,17 +845,20 @@ fun HomeScreen() {
                                             }
                                         },
                                         enabled = !isProcessing,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(52.dp),
+                                        shape = RoundedCornerShape(14.dp),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = NeonCyan,
                                             contentColor = Color.Black
                                         )
                                     ) {
-                                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
+                                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = if (isProcessing) "Đang xử lý (Có thể bấm Hủy ở trên)..." else "✨ Làm Nét Ngay (${selectedMode.title})",
+                                            text = if (isProcessing) "Đang xử lý (Bấm Hủy ở trên)..." else "✨ Làm Nét Ngay (${selectedMode.title})",
+                                            fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -761,72 +871,84 @@ fun HomeScreen() {
                                 val aspectRatio = srcH.toFloat() / srcW.toFloat()
 
                                 Text(
-                                    text = "Chọn tỉ lệ hoặc độ phân giải tiêu chuẩn:",
+                                    text = "Độ phân giải chuẩn:",
                                     fontSize = 12.sp,
                                     color = TextPrimary
                                 )
 
-                                // Preset Resolutions Row
+                                // Preset Resolutions: 4 equal columns aligned with percentages below
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
+                                    modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     listOf(
-                                        "4K UHD" to 3840,
-                                        "2K QHD" to 2560,
-                                        "Full HD" to 1920,
-                                        "HD 720p" to 1280
+                                        "720p" to 1280,
+                                        "1080p" to 1920,
+                                        "2K" to 2560,
+                                        "4K" to 3840
                                     ).forEach { (label, targetW) ->
                                         val targetH = (targetW * aspectRatio).toInt()
-                                        FilterChip(
-                                            selected = customWidth == targetW,
-                                            onClick = {
-                                                customWidth = targetW
-                                                customHeight = targetH
-                                                resizeScalePercent = (targetW.toFloat() / srcW * 100f)
-                                            },
-                                            label = {
-                                                Text(text = "$label (${targetW}p)", fontSize = 11.sp)
-                                            },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = NeonCyan,
-                                                selectedLabelColor = Color.Black,
-                                                containerColor = DarkSurfaceElevated,
-                                                labelColor = TextPrimary
-                                            ),
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
+                                        val isSel = customWidth == targetW
+                                        Surface(
+                                            color = if (isSel) NeonCyan.copy(alpha = 0.2f) else DarkSurfaceElevated,
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, if (isSel) NeonCyan else DarkBorder),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(40.dp)
+                                                .clickable {
+                                                    customWidth = targetW
+                                                    customHeight = targetH
+                                                    resizeScalePercent = (targetW.toFloat() / srcW * 100f)
+                                                }
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                                Text(
+                                                    text = label,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isSel) NeonCyan else TextPrimary
+                                                )
+                                            }
+                                        }
                                     }
                                 }
 
-                                // Quick Percentages Row
+                                Text(
+                                    text = "Tỉ lệ phần trăm (%):",
+                                    fontSize = 12.sp,
+                                    color = TextPrimary
+                                )
+
+                                // Quick Percentages: 4 equal columns matching exactly above
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     listOf(50, 75, 150, 200).forEach { pct ->
                                         val isSel = (resizeScalePercent.roundToInt() == pct)
-                                        FilterChip(
-                                            selected = isSel,
-                                            onClick = {
-                                                resizeScalePercent = pct.toFloat()
-                                                customWidth = (srcW * pct / 100f).toInt()
-                                                customHeight = (srcH * pct / 100f).toInt()
-                                            },
-                                            label = {
-                                                Text(text = "$pct%", fontSize = 11.sp)
-                                            },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = NeonCyan,
-                                                selectedLabelColor = Color.Black,
-                                                containerColor = DarkSurfaceElevated,
-                                                labelColor = TextPrimary
-                                            ),
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.weight(1f)
-                                        )
+                                        Surface(
+                                            color = if (isSel) NeonCyan.copy(alpha = 0.2f) else DarkSurfaceElevated,
+                                            shape = RoundedCornerShape(10.dp),
+                                            border = BorderStroke(1.dp, if (isSel) NeonCyan else DarkBorder),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(40.dp)
+                                                .clickable {
+                                                    resizeScalePercent = pct.toFloat()
+                                                    customWidth = (srcW * pct / 100f).toInt()
+                                                    customHeight = (srcH * pct / 100f).toInt()
+                                                }
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                                Text(
+                                                    text = "$pct%",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isSel) NeonCyan else TextPrimary
+                                                )
+                                            }
+                                        }
                                     }
                                 }
 
@@ -877,17 +999,20 @@ fun HomeScreen() {
                                         }
                                     },
                                     enabled = !isProcessing,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp),
+                                    shape = RoundedCornerShape(14.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = NeonCyan,
                                         contentColor = Color.Black
                                     )
                                 ) {
-                                    Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                                    Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "📐 Áp Dụng Resize (${customWidth}x${customHeight})",
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -895,48 +1020,65 @@ fun HomeScreen() {
 
                             ToolTab.BACKGROUND -> {
                                 Text(
-                                    text = "AI nhận diện chủ thể & người hoàn toàn Offline (MediaPipe ML):",
+                                    text = "AI nhận diện chủ thể Offline (MediaPipe ML):",
                                     fontSize = 12.sp,
                                     color = TextPrimary
                                 )
 
+                                // 3 Equal-Width Style Cards
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    BackgroundStyle.values().forEach { style ->
+                                    listOf(
+                                        Triple(BackgroundStyle.TRANSPARENT, "Trong suốt", "✂️"),
+                                        Triple(BackgroundStyle.WHITE, "Nền Trắng", "⬜"),
+                                        Triple(BackgroundStyle.BLACK, "Nền Đen", "⬛")
+                                    ).forEach { (style, label, icon) ->
                                         val isSelected = selectedBgStyle == style
-                                        FilterChip(
-                                            selected = isSelected,
-                                            onClick = { selectedBgStyle = style },
-                                            label = {
+                                        Surface(
+                                            color = if (isSelected) NeonCyan.copy(alpha = 0.15f) else DarkSurfaceElevated,
+                                            shape = RoundedCornerShape(12.dp),
+                                            border = BorderStroke(1.dp, if (isSelected) NeonCyan else DarkBorder),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(52.dp)
+                                                .clickable { selectedBgStyle = style }
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.fillMaxSize(),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Text(text = icon, fontSize = 14.sp)
+                                                Spacer(modifier = Modifier.height(2.dp))
                                                 Text(
-                                                    text = style.title,
+                                                    text = label,
                                                     fontSize = 11.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isSelected) NeonCyan else TextPrimary
                                                 )
-                                            },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = NeonCyan,
-                                                selectedLabelColor = Color.Black,
-                                                containerColor = DarkSurfaceElevated,
-                                                labelColor = TextPrimary
-                                            ),
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier.weight(1f)
-                                        )
+                                            }
+                                        }
                                     }
                                 }
 
-                                Text(
-                                    text = when (selectedBgStyle) {
-                                        BackgroundStyle.TRANSPARENT -> "💡 Nền sẽ trong suốt (được tự động xuất định dạng PNG để giữ nền rỗng)."
-                                        BackgroundStyle.WHITE -> "💡 Thay nền cũ bằng nền trắng tinh khiết, thích hợp làm ảnh thẻ/chân dung."
-                                        BackgroundStyle.BLACK -> "💡 Thay nền cũ bằng nền đen studio chuyên nghiệp."
-                                    },
-                                    fontSize = 11.sp,
-                                    color = TextSecondary
-                                )
+                                Surface(
+                                    color = DarkSurfaceElevated,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = when (selectedBgStyle) {
+                                            BackgroundStyle.TRANSPARENT -> "💡 Nền sẽ trong suốt (được tự động xuất định dạng PNG để giữ nền rỗng)."
+                                            BackgroundStyle.WHITE -> "💡 Thay nền cũ bằng nền trắng tinh khiết, thích hợp làm ảnh thẻ/chân dung."
+                                            BackgroundStyle.BLACK -> "💡 Thay nền cũ bằng nền đen studio chuyên nghiệp."
+                                        },
+                                        fontSize = 11.sp,
+                                        color = TextSecondary,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
+                                }
 
                                 Button(
                                     onClick = {
@@ -975,17 +1117,20 @@ fun HomeScreen() {
                                         }
                                     },
                                     enabled = !isProcessing,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp),
+                                    shape = RoundedCornerShape(14.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = NeonCyan,
                                         contentColor = Color.Black
                                     )
                                 ) {
-                                    Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
+                                    Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = if (isProcessing) "Đang tách (Có thể bấm Hủy ở trên)..." else "✂️ Tách Nền Ngay",
+                                        text = if (isProcessing) "Đang tách (Bấm Hủy ở trên)..." else "✂️ Tách Nền Ngay",
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -1006,23 +1151,29 @@ fun HomeScreen() {
                                     Surface(
                                         color = if (isJpg) NeonCyan.copy(alpha = 0.15f) else DarkSurfaceElevated,
                                         shape = RoundedCornerShape(12.dp),
-                                        border = androidx.compose.foundation.BorderStroke(
+                                        border = BorderStroke(
                                             1.dp,
-                                            if (isJpg) NeonCyan else Color.Transparent
+                                            if (isJpg) NeonCyan else DarkBorder
                                         ),
                                         modifier = Modifier
                                             .weight(1f)
+                                            .height(96.dp)
                                             .clickable { selectedExportFormat = ExportFormat.JPG }
                                     ) {
-                                        Column(modifier = Modifier.padding(12.dp)) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(10.dp),
+                                            verticalArrangement = Arrangement.SpaceBetween
+                                        ) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = "JPG (Khuyên dùng)",
-                                                    fontSize = 13.sp,
+                                                    text = "JPG",
+                                                    fontSize = 14.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = if (isJpg) NeonCyan else TextPrimary
                                                 )
@@ -1033,9 +1184,10 @@ fun HomeScreen() {
                                                 )
                                             }
                                             Text(
-                                                text = "Giữ nguyên thông số máy ảnh EXIF (ISO, khẩu độ). Dung lượng nhẹ tối ưu.",
-                                                fontSize = 11.sp,
-                                                color = TextSecondary
+                                                text = "Dung lượng nhẹ • Giữ EXIF máy ảnh",
+                                                fontSize = 10.sp,
+                                                color = TextSecondary,
+                                                lineHeight = 13.sp
                                             )
                                         }
                                     }
@@ -1044,23 +1196,29 @@ fun HomeScreen() {
                                     Surface(
                                         color = if (isPng) NeonCyan.copy(alpha = 0.15f) else DarkSurfaceElevated,
                                         shape = RoundedCornerShape(12.dp),
-                                        border = androidx.compose.foundation.BorderStroke(
+                                        border = BorderStroke(
                                             1.dp,
-                                            if (isPng) NeonCyan else Color.Transparent
+                                            if (isPng) NeonCyan else DarkBorder
                                         ),
                                         modifier = Modifier
                                             .weight(1f)
+                                            .height(96.dp)
                                             .clickable { selectedExportFormat = ExportFormat.PNG }
                                     ) {
-                                        Column(modifier = Modifier.padding(12.dp)) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(10.dp),
+                                            verticalArrangement = Arrangement.SpaceBetween
+                                        ) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = "PNG (Không nén)",
-                                                    fontSize = 13.sp,
+                                                    text = "PNG",
+                                                    fontSize = 14.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = if (isPng) NeonCyan else TextPrimary
                                                 )
@@ -1071,9 +1229,10 @@ fun HomeScreen() {
                                                 )
                                             }
                                             Text(
-                                                text = "Bảo toàn 100% pixel, hỗ trợ nền trong suốt khi tách nền.",
-                                                fontSize = 11.sp,
-                                                color = TextSecondary
+                                                text = "Chất lượng gốc • Giữ nền trong suốt",
+                                                fontSize = 10.sp,
+                                                color = TextSecondary,
+                                                lineHeight = 13.sp
                                             )
                                         }
                                     }
@@ -1093,7 +1252,7 @@ fun HomeScreen() {
                                             color = TextPrimary
                                         )
                                         Text(
-                                            text = "• Độ phân giải: ${finalBitmap.width} x ${finalBitmap.height} px\n" +
+                                            text = "• Kích thước: ${finalBitmap.width} x ${finalBitmap.height} px\n" +
                                                     "• Định dạng: .${selectedExportFormat.extension.uppercase()} (${selectedExportFormat.mimeType})\n" +
                                                     "• Thư mục lưu: Bộ sưu tập ảnh (Pictures/ImagesTo4K)",
                                             fontSize = 11.sp,
@@ -1123,17 +1282,20 @@ fun HomeScreen() {
                                             }
                                         }
                                     },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp),
+                                    shape = RoundedCornerShape(14.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = AccentGreen,
                                         contentColor = Color.Black
                                     )
                                 ) {
-                                    Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                                    Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(20.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "💾 Lưu Vào Bộ Sưu Tập (.${selectedExportFormat.extension.uppercase()})",
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
