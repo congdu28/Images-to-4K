@@ -20,8 +20,8 @@ android {
         applicationId = "com.projectfun.imagesto4k"
         minSdk = 24
         targetSdk = 34
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 6)
-        versionName = "1.3.1"
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 7)
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

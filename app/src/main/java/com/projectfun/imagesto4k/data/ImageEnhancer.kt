@@ -504,6 +504,124 @@ class ImageEnhancer(private val context: Context) {
     }
 
     /**
+     * AI-Guided 4K Enhancement Engine powered by Gemini Flash analysis.
+     * Takes parametric intelligence from Gemini (sharpenAmount, contrastBoost, denoiseStrength, vibrance)
+     * and applies high-speed, zero-leak dual-frequency 4K reconstruction.
+     */
+    suspend fun applyAiTunedEnhancement(
+        src: Bitmap,
+        sharpenAmount: Float = 1.8f,
+        contrastBoost: Float = 1.15f,
+        denoiseStrength: Float = 0.2f,
+        vibrance: Float = 1.08f,
+        onProgress: (Float, String) -> Unit = { _, _ -> }
+    ): Bitmap = withContext(Dispatchers.Default) {
+        currentCoroutineContext().ensureActive()
+        onProgress(0.7f, "Đang nội suy điểm ảnh lên độ phân giải 4K UHD...")
+
+        // Upscale safely to 4K UHD bounds (target max 3840px)
+        val maxDim = max(src.width, src.height)
+        val targetScale = if (maxDim < 3840) (3840f / maxDim).coerceAtMost(4f) else 1f
+        val targetW = (src.width * targetScale).toInt().coerceAtMost(3840)
+        val targetH = (src.height * targetScale).toInt().coerceAtMost(3840)
+
+        val working = if (targetW != src.width || targetH != src.height) {
+            resizeImage(src, targetW, targetH)
+        } else {
+            src
+        }
+
+        currentCoroutineContext().ensureActive()
+        onProgress(0.85f, "Đang áp dụng ma trận tái tạo chi tiết và tương phản AI...")
+
+        val width = working.width
+        val height = working.height
+        val wh = width * height
+        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
+        val srcPixels = IntArray(wh)
+        val fineBlurPixels = IntArray(wh)
+        val wideBlurPixels = IntArray(wh)
+        val tempBuf = IntArray(wh)
+
+        working.getPixels(srcPixels, 0, width, 0, 0, width, height)
+
+        val minDim = min(width, height)
+        val fineRadius = max(2, minDim / 400)
+        val wideRadius = max(6, minDim / 120)
+
+        fastBoxBlur(srcPixels, fineBlurPixels, tempBuf, width, height, fineRadius)
+        currentCoroutineContext().ensureActive()
+
+        fastBoxBlur(srcPixels, wideBlurPixels, tempBuf, width, height, wideRadius)
+        currentCoroutineContext().ensureActive()
+
+        val safeSharpen = sharpenAmount.coerceIn(0.5f, 3.5f)
+        val fineWeight = 1.6f * safeSharpen
+        val wideWeight = 0.5f * safeSharpen
+        val contrast = contrastBoost.coerceIn(0.8f, 1.6f)
+        val vib = vibrance.coerceIn(0.85f, 1.4f)
+
+        for (i in 0 until wh) {
+            if (i % 250000 == 0) currentCoroutineContext().ensureActive()
+
+            val orig = srcPixels[i]
+            val fine = fineBlurPixels[i]
+            val wide = wideBlurPixels[i]
+
+            val a = (orig shr 24) and 0xFF
+            var r = ((orig shr 16) and 0xFF).toFloat()
+            var g = ((orig shr 8) and 0xFF).toFloat()
+            var b = (orig and 0xFF).toFloat()
+
+            val rFine = ((fine shr 16) and 0xFF).toFloat()
+            val gFine = ((fine shr 8) and 0xFF).toFloat()
+            val bFine = (fine and 0xFF).toFloat()
+
+            val rWide = ((wide shr 16) and 0xFF).toFloat()
+            val gWide = ((wide shr 8) and 0xFF).toFloat()
+            val bWide = (wide and 0xFF).toFloat()
+
+            // 1. Dual-frequency micro-contrast and edge sharpness
+            val rDiff = fineWeight * (r - rFine) + wideWeight * (r - rWide)
+            val gDiff = fineWeight * (g - gFine) + wideWeight * (g - gWide)
+            val bDiff = fineWeight * (b - bFine) + wideWeight * (b - bWide)
+
+            var rNew = r + rDiff
+            var gNew = g + gDiff
+            var bNew = b + bDiff
+
+            // 2. Dynamic contrast curve centered at middle gray
+            if (contrast != 1.0f) {
+                rNew = 128f + (rNew - 128f) * contrast
+                gNew = 128f + (gNew - 128f) * contrast
+                bNew = 128f + (bNew - 128f) * contrast
+            }
+
+            // 3. Vibrance boost (targets muted colors without oversaturating skin tones)
+            if (vib != 1.0f) {
+                val maxC = max(rNew, max(gNew, bNew))
+                val minC = min(rNew, min(gNew, bNew))
+                val sat = (maxC - minC) / (max(maxC, 1f))
+                val boost = (1f - sat) * (vib - 1f)
+                val avg = (rNew + gNew + bNew) / 3f
+                rNew += (rNew - avg) * boost
+                gNew += (gNew - avg) * boost
+                bNew += (bNew - avg) * boost
+            }
+
+            fineBlurPixels[i] = (a shl 24) or
+                    (rNew.toInt().coerceIn(0, 255) shl 16) or
+                    (gNew.toInt().coerceIn(0, 255) shl 8) or
+                    bNew.toInt().coerceIn(0, 255)
+        }
+
+        output.setPixels(fineBlurPixels, 0, width, 0, 0, width, height)
+        if (working != src) working.recycle()
+        output
+    }
+
+    /**
      * Professional Dual-Frequency Sharpening & Micro-Contrast (Clarity) Engine.
      * Zero-leak, buffer-reused design cutting memory by 75%+.
      */

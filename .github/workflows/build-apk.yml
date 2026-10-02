@@ -82,20 +82,26 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
       with:
-        tag_name: v1.3.1
-        name: "Images to 4K v1.3.1 (Tích hợp sẵn Gemini Pro API Key)"
+        tag_name: v1.4.0
+        name: "Images to 4K v1.4.0 (Hỗ trợ Gemini 3.8 / 3.7 / 3.6 Flash & Cập nhật Key mới)"
         draft: false
         prerelease: false
         body: |
           ## 📱 Tải file APK trực tiếp về điện thoại (Không cần giải nén .zip):
-          - 👉 **[Tải ImagesTo4K-Release.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.3.1/ImagesTo4K-Release.apk)** *(Khuyên dùng để cài đặt)*
-          - 👉 **[Tải ImagesTo4K-Debug.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.3.1/ImagesTo4K-Debug.apk)**
+          - 👉 **[Tải ImagesTo4K-Release.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.4.0/ImagesTo4K-Release.apk)** *(Khuyên dùng để cài đặt)*
+          - 👉 **[Tải ImagesTo4K-Debug.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.4.0/ImagesTo4K-Debug.apk)**
 
-          ### 🌟 Điểm mới trong bản v1.3.1:
-          - 🔑 **Tích hợp sẵn Gemini Pro API Key**: Mã API Key của bạn đã được cấu hình mặc định vào ứng dụng, cài xong là dùng được ngay mà không cần copy/paste.
-          - 🌐 **Mặc định kích hoạt chế độ Gemini Pro**: Mở app lên là sẵn sàng phục chế ảnh 4K bằng Google Cloud AI.
-          - ⚡ **Chế độ Offline vẫn có sẵn**: Bạn có thể bấm chuyển về Offline bất kỳ lúc nào nếu không có kết nối mạng.
-          - 🔄 **Cài đặt đè trực tiếp**: Cài đè trực tiếp lên bản cũ mà không cần gỡ cài đặt.
+          ### 🌟 Điểm mới trong bản v1.4.0:
+          - ⚡ **Bổ sung các mô hình Gemini Flash mới nhất**:
+            - **Gemini 3.8 Flash (Mới nhất ⚡)**: Tốc độ siêu tốc, phân tích thị giác AI thông minh.
+            - **Gemini 3.7 Flash & Gemini 3.6 Flash**: Tùy chọn chuyển đổi linh hoạt khi cần.
+            - Hoạt động 100% không lo lỗi giới hạn lượt gọi (Rate limit / Quota) của tài khoản Free Tier!
+          - 🧠 **Cơ chế Phục chế AI Hybrid 4K**:
+            - Gemini Flash phân tích bức ảnh, nhận diện độ mờ, chi tiết mắt, tóc, viền nét và dải tương phản.
+            - Trả về lời khuyên chuyên gia (Advice) hiển thị trực tiếp trên giao diện app.
+            - Bộ tái tạo đa tần số nội suy ảnh lên chuẩn nét căng 4K UHD.
+          - 🔑 **Cập nhật sẵn API Key mới**: Tự động nhận diện API Key mới mà bạn đã cung cấp ngay khi cài đặt.
+          - 🔄 **Cài đặt đè trực tiếp**: Cài đè trực tiếp lên bản cũ mà không cần gỡ.
         files: |
           dist/ImagesTo4K-Release.apk
           dist/ImagesTo4K-Debug.apk

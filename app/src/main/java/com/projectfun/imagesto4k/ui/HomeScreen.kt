@@ -77,6 +77,7 @@ fun HomeScreen() {
     var geminiApiKey by remember { mutableStateOf(GeminiClient.getSavedApiKey(context)) }
     var selectedGeminiModel by remember { mutableStateOf(GeminiClient.getSelectedModel(context)) }
     var geminiCustomPrompt by remember { mutableStateOf("") }
+    var geminiAdviceText by remember { mutableStateOf("") }
 
     // Offline Enhance Settings
     var selectedMode by remember { mutableStateOf(EnhancementMode.FAST_4K) }
@@ -110,6 +111,7 @@ fun HomeScreen() {
 
             processedBitmap?.recycle()
             processedBitmap = null
+            geminiAdviceText = ""
             originalBitmap?.recycle()
             originalBitmap = null
 
@@ -209,6 +211,7 @@ fun HomeScreen() {
                                     isProcessing = false
                                     processedBitmap?.recycle()
                                     processedBitmap = null
+                                    geminiAdviceText = ""
                                     System.gc()
                                     Toast.makeText(context, "Đã khôi phục về ảnh gốc!", Toast.LENGTH_SHORT).show()
                                 }
@@ -367,6 +370,27 @@ fun HomeScreen() {
                                 color = TextSecondary,
                                 fontWeight = FontWeight.SemiBold
                             )
+                        }
+
+                        // Gemini AI Advice & Insights banner
+                        if (geminiAdviceText.isNotBlank()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(NeonCyan.copy(alpha = 0.12f))
+                                    .border(1.dp, NeonCyan.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "💡 $geminiAdviceText",
+                                    fontSize = 11.sp,
+                                    color = NeonCyan,
+                                    fontWeight = FontWeight.Medium,
+                                    lineHeight = 15.sp
+                                )
+                            }
                         }
 
                         // Navigation Tabs (Làm Nét, Resize, Tách Nền, Xuất File)
@@ -566,19 +590,22 @@ fun HomeScreen() {
                                                 processingJob = coroutineScope.launch {
                                                     try {
                                                         val source = processedBitmap ?: originalBitmap!!
+                                                        val enhancer = ImageEnhancer(context)
                                                         val result = GeminiClient.enhanceWithGemini(
                                                             inputBitmap = source,
                                                             apiKey = geminiApiKey,
                                                             model = selectedGeminiModel,
                                                             customPrompt = geminiCustomPrompt.ifBlank { null },
+                                                            imageEnhancer = enhancer,
                                                             onProgress = { p, msg ->
                                                                 progress = p
                                                                 progressText = msg
                                                             }
                                                         )
-                                                        processedBitmap = result
-                                                        resultLabel = "GEMINI PRO 4K"
-                                                        Toast.makeText(context, "Gemini Pro phục chế ảnh hoàn tất!", Toast.LENGTH_SHORT).show()
+                                                        processedBitmap = result.bitmap
+                                                        geminiAdviceText = result.advice
+                                                        resultLabel = "GEMINI 4K"
+                                                        Toast.makeText(context, "Gemini phục chế ảnh 4K hoàn tất!", Toast.LENGTH_SHORT).show()
                                                     } catch (e: CancellationException) {
                                                         progressText = "Đã hủy tác vụ Gemini"
                                                     } catch (e: Throwable) {
