@@ -82,24 +82,20 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
       with:
-        tag_name: v1.3.0
-        name: "Images to 4K v1.3.0 (Tích hợp Google Gemini Pro Cloud AI)"
+        tag_name: v1.3.1
+        name: "Images to 4K v1.3.1 (Tích hợp sẵn Gemini Pro API Key)"
         draft: false
         prerelease: false
         body: |
           ## 📱 Tải file APK trực tiếp về điện thoại (Không cần giải nén .zip):
-          - 👉 **[Tải ImagesTo4K-Release.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.3.0/ImagesTo4K-Release.apk)** *(Khuyên dùng để cài đặt)*
-          - 👉 **[Tải ImagesTo4K-Debug.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.3.0/ImagesTo4K-Debug.apk)**
+          - 👉 **[Tải ImagesTo4K-Release.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.3.1/ImagesTo4K-Release.apk)** *(Khuyên dùng để cài đặt)*
+          - 👉 **[Tải ImagesTo4K-Debug.apk](https://github.com/congdu28/Images-to-4K/releases/download/v1.3.1/ImagesTo4K-Debug.apk)**
 
-          ### 🌟 Điểm mới nổi bật trong bản v1.3.0:
-          - 🌐 **Tích hợp Google Gemini Pro Cloud AI**:
-            - Hỗ trợ mô hình cao cấp **Gemini 3 Pro Image (Nano Banana Pro)** & **Gemini 3.1 Flash Image**.
-            - Phục chế chi tiết ảnh mờ bằng GPU đám mây của Google mà không làm nóng điện thoại hay tốn pin.
-            - Tùy chọn cài đặt API Key an toàn và kiểm tra kết nối trực tiếp trong ứng dụng.
-            - Gợi ý prompt chuyên dụng cho ảnh chân dung (mắt/tóc), phong cảnh và khử nhiễu đêm.
-          - ⚡ **Chế độ kép linh hoạt (Offline & Online)**: Dễ dàng chuyển đổi giữa chip máy và Gemini Cloud.
-          - 🛑 **Nút Hủy xử lý tức thì**: Hỗ trợ hủy nhanh cả tác vụ Offline lẫn tác vụ mạng Gemini Online.
-          - 🔄 **Cài đặt đè trực tiếp**: Cài trực tiếp đè lên các bản cũ mà không cần gỡ.
+          ### 🌟 Điểm mới trong bản v1.3.1:
+          - 🔑 **Tích hợp sẵn Gemini Pro API Key**: Mã API Key của bạn đã được cấu hình mặc định vào ứng dụng, cài xong là dùng được ngay mà không cần copy/paste.
+          - 🌐 **Mặc định kích hoạt chế độ Gemini Pro**: Mở app lên là sẵn sàng phục chế ảnh 4K bằng Google Cloud AI.
+          - ⚡ **Chế độ Offline vẫn có sẵn**: Bạn có thể bấm chuyển về Offline bất kỳ lúc nào nếu không có kết nối mạng.
+          - 🔄 **Cài đặt đè trực tiếp**: Cài đè trực tiếp lên bản cũ mà không cần gỡ cài đặt.
         files: |
           dist/ImagesTo4K-Release.apk
           dist/ImagesTo4K-Debug.apk

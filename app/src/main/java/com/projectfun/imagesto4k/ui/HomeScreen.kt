@@ -72,7 +72,7 @@ fun HomeScreen() {
     var exifSummary by remember { mutableStateOf("") }
 
     // Engine Selection (Offline chip vs Online Gemini Pro)
-    var selectedEngine by remember { mutableStateOf(ProcessingEngine.OFFLINE) }
+    var selectedEngine by remember { mutableStateOf(ProcessingEngine.ONLINE_GEMINI) }
     var showGeminiDialog by remember { mutableStateOf(false) }
     var geminiApiKey by remember { mutableStateOf(GeminiClient.getSavedApiKey(context)) }
     var selectedGeminiModel by remember { mutableStateOf(GeminiClient.getSelectedModel(context)) }
